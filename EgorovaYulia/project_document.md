@@ -1087,5 +1087,473 @@ WHERE table_schema = 'public'
 ORDER BY table_name;
 ```
 
+### Создание запросов к базе данных
 
+#### Информационные запросы (SELECT)
+
+##### Получение полного каталога книг
+
+```sql
+-- Запрос 1: Полный каталог книг с информацией об авторе и жанрах
+SELECT 
+    b.book_id,
+    b.title,
+    a.last_name || ' ' || a.first_name AS author_name,
+    ar.code AS age_rating,
+    b.publication_year,
+    b.publisher,
+    STRING_AGG(g.name, ', ') AS genres
+FROM book b
+JOIN author a ON b.author_id = a.author_id
+JOIN age_rating ar ON b.rating_id = ar.rating_id
+LEFT JOIN book_genre bg ON b.book_id = bg.book_id
+LEFT JOIN genre g ON bg.genre_id = g.genre_id
+GROUP BY b.book_id, b.title, a.last_name, a.first_name, ar.code, 
+         b.publication_year, b.publisher
+ORDER BY b.title;
+```
+**Назначение:** Отображение полного списка книг с группировкой по жанрам.
+
+##### Поиск книг по названию или автору
+
+```sql
+-- Запрос 2: Поиск книг по ключевым словам
+SELECT 
+    b.book_id,
+    b.title,
+    a.last_name || ' ' || a.first_name AS author,
+    ar.code AS age_rating,
+    b.publication_year,
+    c.inventory_number,
+    CASE 
+        WHEN c.is_available THEN 'Доступна'
+        ELSE 'Выдана'
+    END AS status
+FROM book b
+JOIN author a ON b.author_id = a.author_id
+JOIN age_rating ar ON b.rating_id = ar.rating_id
+LEFT JOIN copy c ON b.book_id = c.book_id
+WHERE b.title ILIKE '%война%' 
+   OR a.last_name ILIKE '%толст%'
+ORDER BY b.title;
+```
+**Назначение:** Поиск книг по части названия или фамилии автора.
+
+##### Получение доступных для выдачи экземпляров
+
+```sql
+-- Запрос 3: Список доступных экземпляров
+SELECT 
+    c.copy_id,
+    c.inventory_number,
+    b.title,
+    a.last_name || ' ' || a.first_name AS author,
+    ar.code AS age_rating,
+    c.condition,
+    l.room || ', ' || l.furniture || ', полка: ' || l.shelf AS location
+FROM copy c
+JOIN book b ON c.book_id = b.book_id
+JOIN author a ON b.author_id = a.author_id
+JOIN age_rating ar ON b.rating_id = ar.rating_id
+LEFT JOIN location l ON c.location_id = l.location_id
+WHERE c.is_available = TRUE
+ORDER BY b.title, c.inventory_number;
+```
+**Назначение:** Отображение только доступных для выдачи экземпляров книг.
+
+##### Текущие выдачи книг
+
+```sql
+-- Запрос 4: Текущие выдачи (книги на руках)
+SELECT 
+    l.loan_id,
+    u.last_name || ' ' || u.first_name AS reader_name,
+    b.title AS book_title,
+    a.last_name || ' ' || a.first_name AS author_name,
+    c.inventory_number,
+    l.loan_date,
+    l.due_date,
+    CASE 
+        WHEN l.due_date < CURRENT_DATE THEN 'Просрочена'
+        ELSE 'В сроке'
+    END AS status
+FROM loan l
+JOIN "user" u ON l.user_id = u.user_id
+JOIN copy c ON l.copy_id = c.copy_id
+JOIN book b ON c.book_id = b.book_id
+JOIN author a ON b.author_id = a.author_id
+WHERE l.return_date IS NULL
+ORDER BY l.due_date;
+```
+**Назначение:** Отслеживание книг, которые в данный момент выданы читателям.
+
+##### Проверка возрастных ограничений
+
+```sql
+-- Запрос 5: Проверка возрастных ограничений для конкретной выдачи
+SELECT 
+    b.title,
+    a.last_name || ' ' || a.first_name AS author,
+    ar.code AS book_rating,
+    ar.min_age AS required_age,
+    u.last_name || ' ' || u.first_name AS reader_name,
+    EXTRACT(YEAR FROM AGE(CURRENT_DATE, u.birth_date)) AS reader_age,
+    CASE 
+        WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, u.birth_date)) >= ar.min_age 
+        THEN 'Разрешена'
+        ELSE 'Запрещена'
+    END AS loan_permission
+FROM loan l
+JOIN "user" u ON l.user_id = u.user_id
+JOIN copy c ON l.copy_id = c.copy_id
+JOIN book b ON c.book_id = b.book_id
+JOIN author a ON b.author_id = a.author_id
+JOIN age_rating ar ON b.rating_id = ar.rating_id
+WHERE l.loan_id = 1;
+```
+**Назначение:** Проверка соответствия возраста читателя возрастному рейтингу книги.
+
+#### Операционные запросы (INSERT, UPDATE, DELETE)
+
+##### Добавление новой книги
+
+```sql
+-- Запрос 6: Добавление новой книги в каталог
+INSERT INTO book (rating_id, author_id, title, publication_year, publisher, description)
+VALUES (
+    (SELECT rating_id FROM age_rating WHERE code = '12+'),
+    (SELECT author_id FROM author WHERE last_name = 'Толстой' AND first_name = 'Лев'),
+    'Война и мир',
+    1869,
+    'Русский вестник',
+    'Роман-эпопея о русском обществе в эпоху наполеоновских войн'
+)
+RETURNING book_id;
+```
+**Назначение:** Регистрация новой книги в системе.
+
+##### Регистрация выдачи книги
+
+```sql
+-- Запрос 7: Оформление выдачи книги
+INSERT INTO loan (copy_id, user_id, due_date, notes)
+VALUES (
+    1,  -- ID экземпляра
+    3,  -- ID читателя
+    CURRENT_DATE + INTERVAL '14 days',
+    'Выдача для домашнего чтения'
+)
+RETURNING loan_id;
+```
+**Назначение:** Фиксация факта выдачи книги читателю.
+
+##### Возврат книги
+
+```sql
+-- Запрос 8: Регистрация возврата книги
+UPDATE loan 
+SET return_date = CURRENT_DATE,
+    notes = COALESCE(notes, '') || ' Возвращена ' || CURRENT_DATE
+WHERE loan_id = 1
+  AND return_date IS NULL
+RETURNING loan_id;
+```
+**Назначение:** Отметка о возврате выданной книги.
+
+##### Добавление нового пользователя
+
+```sql
+-- Запрос 9: Регистрация нового читателя
+INSERT INTO "user" (last_name, first_name, birth_date, email, role)
+VALUES (
+    'Петров',
+    'Алексей',
+    '2010-03-10',
+    'alex@mail.ru',
+    'reader'
+)
+RETURNING user_id;
+```
+**Назначение:** Создание учетной записи нового пользователя системы.
+
+##### Обновление состояния экземпляра
+
+```sql
+-- Запрос 10: Изменение состояния экземпляра книги
+UPDATE copy 
+SET condition = 'good',
+    special_notes = 'Отреставрирован переплёт'
+WHERE copy_id = 1
+RETURNING copy_id;
+```
+**Назначение:** Обновление информации о физическом состоянии книги.
+
+#### Статистические запросы
+
+##### Статистика по библиотеке
+
+```sql
+-- Запрос 11: Общая статистика библиотеки
+SELECT 
+    COUNT(DISTINCT b.book_id) AS total_books,
+    COUNT(DISTINCT a.author_id) AS total_authors,
+    COUNT(DISTINCT c.copy_id) AS total_copies,
+    COUNT(DISTINCT u.user_id) AS total_users,
+    COUNT(DISTINCT l.loan_id) AS total_loans,
+    COUNT(DISTINCT CASE WHEN l.return_date IS NULL THEN l.loan_id END) AS current_loans
+FROM book b
+CROSS JOIN author a
+CROSS JOIN copy c
+CROSS JOIN "user" u
+CROSS JOIN loan l;
+```
+**Назначение:** Получение общей статистики по библиотеке.
+
+##### Популярность книг
+
+```sql
+-- Запрос 12: Самые популярные книги
+SELECT 
+    b.title,
+    a.last_name || ' ' || a.first_name AS author,
+    COUNT(l.loan_id) AS loan_count,
+    COUNT(DISTINCT l.user_id) AS unique_readers
+FROM book b
+JOIN author a ON b.author_id = a.author_id
+JOIN copy c ON b.book_id = c.book_id
+JOIN loan l ON c.copy_id = l.copy_id
+GROUP BY b.book_id, b.title, a.last_name, a.first_name
+ORDER BY loan_count DESC
+LIMIT 10;
+```
+**Назначение:** Определение самых востребованных книг.
+
+##### Активность читателей
+
+```sql
+-- Запрос 13: Самые активные читатели
+SELECT 
+    u.last_name || ' ' || u.first_name AS reader_name,
+    COUNT(l.loan_id) AS total_loans,
+    COUNT(DISTINCT b.book_id) AS unique_books,
+    MIN(l.loan_date) AS first_loan,
+    MAX(l.loan_date) AS last_loan
+FROM "user" u
+JOIN loan l ON u.user_id = l.user_id
+JOIN copy c ON l.copy_id = c.copy_id
+JOIN book b ON c.book_id = b.book_id
+GROUP BY u.user_id, u.last_name, u.first_name
+ORDER BY total_loans DESC
+LIMIT 10;
+```
+**Назначение:** Рейтинг читателей по активности.
+
+##### Статистика по жанрам
+
+```sql
+-- Запрос 14: Распределение книг по жанрам
+SELECT 
+    g.name AS genre,
+    COUNT(DISTINCT b.book_id) AS book_count,
+    COUNT(DISTINCT c.copy_id) AS copy_count,
+    ROUND(100.0 * COUNT(DISTINCT b.book_id) / SUM(COUNT(DISTINCT b.book_id)) OVER (), 1) AS percentage
+FROM genre g
+LEFT JOIN book_genre bg ON g.genre_id = bg.genre_id
+LEFT JOIN book b ON bg.book_id = b.book_id
+LEFT JOIN copy c ON b.book_id = c.book_id
+GROUP BY g.name
+ORDER BY book_count DESC;
+```
+**Назначение:** Анализ распределения книг по жанрам.
+
+#### Административные запросы
+
+##### Проверка целостности данных
+
+```sql
+-- Запрос 15: Проверка целостности связей
+SELECT 
+    'author' AS table_name,
+    COUNT(*) AS record_count,
+    COUNT(DISTINCT author_id) AS unique_ids
+FROM author
+UNION ALL
+SELECT 
+    'book',
+    COUNT(*),
+    COUNT(DISTINCT book_id)
+FROM book
+UNION ALL
+SELECT 
+    'loan',
+    COUNT(*),
+    COUNT(DISTINCT loan_id)
+FROM loan
+ORDER BY table_name;
+```
+**Назначение:** Проверка корректности данных в основных таблицах.
+
+##### Поиск дубликатов
+
+```sql
+-- Запрос 16: Поиск дублирующихся инвентарных номеров
+SELECT 
+    inventory_number,
+    COUNT(*) AS duplicate_count
+FROM copy
+GROUP BY inventory_number
+HAVING COUNT(*) > 1;
+```
+**Назначение:** Обнаружение возможных ошибок в данных.
+
+##### Аудит изменений
+
+```sql
+-- Запрос 17: Просмотр журнала аудита за последние 7 дней
+SELECT 
+    al.table_name,
+    al.record_id,
+    al.action,
+    al.action_timestamp,
+    al.user_name,
+    CASE 
+        WHEN al.action = 'INSERT' THEN 'Добавлена новая запись'
+        WHEN al.action = 'UPDATE' THEN 'Изменение существующей записи'
+        WHEN al.action = 'DELETE' THEN 'Удаление записи'
+    END AS change_description
+FROM audit_log al
+WHERE al.action_timestamp >= CURRENT_DATE - INTERVAL '7 days'
+ORDER BY al.action_timestamp DESC;
+```
+**Назначение:** Мониторинг изменений в системе.
+
+#### Специальные запросы для бизнес-логики
+
+##### Проверка возможности выдачи
+
+```sql
+-- Запрос 18: Комплексная проверка перед выдачей
+WITH check_results AS (
+    SELECT 
+        -- Проверка доступности экземпляра
+        (SELECT is_available FROM copy WHERE copy_id = 1) AS is_copy_available,
+        
+        -- Проверка количества книг у пользователя
+        (SELECT COUNT(*) FROM loan WHERE user_id = 3 AND return_date IS NULL) AS user_current_loans,
+        
+        -- Проверка возрастного ограничения
+        (SELECT 
+            CASE 
+                WHEN u.birth_date IS NULL THEN TRUE
+                WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, u.birth_date)) >= ar.min_age THEN TRUE
+                ELSE FALSE
+            END
+         FROM "user" u
+         JOIN loan l ON u.user_id = l.user_id
+         JOIN copy c ON l.copy_id = c.copy_id
+         JOIN book b ON c.book_id = b.book_id
+         JOIN age_rating ar ON b.rating_id = ar.rating_id
+         WHERE l.loan_id = 1) AS age_check_passed
+)
+SELECT 
+    CASE 
+        WHEN NOT is_copy_available THEN 'Экземпляр недоступен'
+        WHEN user_current_loans >= 5 THEN 'Превышен лимит книг (5 шт.)'
+        WHEN NOT age_check_passed THEN 'Нарушение возрастного ограничения'
+        ELSE 'Выдача разрешена'
+    END AS check_result
+FROM check_results;
+```
+**Назначение:** Комплексная проверка всех условий перед выдачей книги.
+
+##### Генерация отчетов
+
+```sql
+-- Запрос 19: Отчет "Книги, требующие внимания"
+SELECT 
+    'Книги в плохом состоянии' AS category,
+    c.inventory_number,
+    b.title,
+    c.condition,
+    c.special_notes
+FROM copy c
+JOIN book b ON c.book_id = b.book_id
+WHERE c.condition = 'poor'
+
+UNION ALL
+
+SELECT 
+    'Просроченные выдачи',
+    c.inventory_number,
+    b.title,
+    'Просрочена на ' || (CURRENT_DATE - l.due_date) || ' дней',
+    u.last_name || ' ' || u.first_name AS reader
+FROM loan l
+JOIN copy c ON l.copy_id = c.copy_id
+JOIN book b ON c.book_id = b.book_id
+JOIN "user" u ON l.user_id = u.user_id
+WHERE l.return_date IS NULL 
+  AND l.due_date < CURRENT_DATE
+
+UNION ALL
+
+SELECT 
+    'Книги без экземпляров',
+    'НЕТ',
+    b.title,
+    'Отсутствуют экземпляры',
+    a.last_name || ' ' || a.first_name
+FROM book b
+JOIN author a ON b.author_id = a.author_id
+WHERE NOT EXISTS (
+    SELECT 1 FROM copy WHERE book_id = b.book_id
+)
+ORDER BY category;
+```
+**Назначение:** Формирование отчета о проблемных ситуациях.
+
+#### Оптимизированные запросы с использованием индексов
+
+##### Быстрый поиск с полнотекстовым индексом
+
+```sql
+-- Запрос 20: Полнотекстовый поиск книг
+SELECT 
+    b.book_id,
+    b.title,
+    a.last_name || ' ' || a.first_name AS author,
+    ts_headline('russian', b.description, 
+                plainto_tsquery('russian', 'война'), 
+                'StartSel = <mark>, StopSel = </mark>') AS highlighted_description
+FROM book b
+JOIN author a ON b.author_id = a.author_id
+WHERE to_tsvector('russian', b.title || ' ' || COALESCE(b.description, '')) 
+      @@ plainto_tsquery('russian', 'война')
+ORDER BY ts_rank(to_tsvector('russian', b.title || ' ' || COALESCE(b.description, '')), 
+                 plainto_tsquery('russian', 'война')) DESC;
+```
+**Назначение:** Эффективный поиск по названиям и описаниям книг.
+
+##### Оптимизированная статистика
+
+```sql
+-- Запрос 21: Быстрая статистика с материализацией
+WITH monthly_stats AS (
+    SELECT 
+        DATE_TRUNC('month', loan_date) AS month,
+        COUNT(*) AS loan_count,
+        COUNT(DISTINCT user_id) AS unique_readers
+    FROM loan
+    WHERE loan_date >= CURRENT_DATE - INTERVAL '1 year'
+    GROUP BY DATE_TRUNC('month', loan_date)
+)
+SELECT 
+    TO_CHAR(month, 'YYYY-MM') AS period,
+    loan_count,
+    unique_readers,
+    ROUND(loan_count::DECIMAL / NULLIF(unique_readers, 0), 2) AS avg_loans_per_reader
+FROM monthly_stats
+ORDER BY month DESC;
+```
+**Назначение:** Быстрое получение статистики по месяцам.
 
