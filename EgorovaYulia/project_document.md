@@ -890,5 +890,202 @@ PostgreSQL поддерживает создание собственной би
 
 ### Cоздание таблиц
 
+Создание таблиц базы данных выполнено с использованием языка определения данных (DDL) SQL. Все таблицы созданы в схеме `public` с учетом нормализации данных до третьей нормальной формы (3NF), что исключает избыточность и обеспечивает целостность информации. Для каждой таблицы определены соответствующие типы данных, первичные и внешние ключи, а также ограничения целостности (CHECK-ограничения), гарантирующие соблюдение бизнес-правил и законодательных требований.
+
+Основные таблицы включают: `author` для хранения информации об авторах с поддержкой различных типов авторства (индивидуальный, народный фольклор, неизвестный, коллективный); `age_rating` — справочник возрастных рейтингов согласно ФЗ №436-ФЗ с фиксированными значениями (0+, 6+, 12+, 16+, 18+); `book` — основная таблица библиографических описаний с обязательной ссылкой на возрастной рейтинг; `copy` — учет физических экземпляров с уникальными инвентарными номерами; `"user"` — таблица пользователей системы с тремя уровнями доступа (администратор, библиотекарь, читатель); `loan` — журнал выдачи и возврата книг с автоматической проверкой ограничений. 
+
+Особое внимание уделено таблице `audit_log`, предназначенной для регистрации всех изменений критических данных в формате JSONB, что обеспечивает прозрачность и возможность восстановления информации. Все таблицы связаны через систему внешних ключей с настроенными каскадными действиями: `ON DELETE CASCADE` для зависимых записей, `ON DELETE RESTRICT` для предотвращения удаления используемых данных, `ON DELETE SET NULL` для сохранения ссылочной целостности при удалении мест хранения. Для оптимизации производительности созданы индексы на часто используемых полях, включая полнотекстовый индекс для поиска по названиям книг с поддержкой русского языка.
+
+### Последовательность создания таблиц
+
+#### Создание справочника возрастных рейтингов (первая таблица)
+
+
+```sql
+-- Таблица 1: Возрастные рейтинги (основа для соблюдения ФЗ №436-ФЗ)
+CREATE TABLE age_rating (
+    rating_id SERIAL PRIMARY KEY,
+    code VARCHAR(3) UNIQUE NOT NULL CHECK (code IN ('0+', '6+', '12+', '16+', '18+')),
+    min_age INTEGER NOT NULL CHECK (min_age IN (0, 6, 12, 16, 18)),
+    description VARCHAR(200) NOT NULL
+);
+```
+
+#### Создание справочника жанров
+Создаём таблицу жанров, так как она является самостоятельным справочником.
+
+```sql
+-- Таблица 2: Жанры литературных произведений
+CREATE TABLE genre (
+    genre_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT
+);
+```
+
+#### Создание таблицы авторов
+Создаём таблицу авторов перед таблицей книг, так как книги ссылаются на авторов.
+
+```sql
+-- Таблица 3: Авторы литературных произведений
+CREATE TABLE author (
+    author_id SERIAL PRIMARY KEY,
+    last_name VARCHAR(50) NOT NULL,
+    first_name VARCHAR(50) NOT NULL,
+    middle_name VARCHAR(50),
+    birth_year INTEGER,
+    death_year INTEGER CHECK (death_year IS NULL OR death_year > birth_year),
+    country VARCHAR(100) NOT NULL,
+    special_notes TEXT,
+    author_type VARCHAR(20) DEFAULT 'individual'
+        CHECK (author_type IN ('individual', 'folk', 'unknown', 'collective'))
+);
+```
+
+#### Создание основной таблицы книг
+Теперь создаём основную таблицу книг, которая ссылается на созданные справочники.
+
+```sql
+-- Таблица 4: Библиографические описания книг
+CREATE TABLE book (
+    book_id SERIAL PRIMARY KEY,
+    rating_id INTEGER NOT NULL REFERENCES age_rating(rating_id) ON DELETE RESTRICT,
+    author_id INTEGER NOT NULL REFERENCES author(author_id) ON DELETE RESTRICT,
+    title VARCHAR(200) NOT NULL,
+    original_title VARCHAR(200),
+    publication_year INTEGER NOT NULL CHECK (publication_year <= EXTRACT(YEAR FROM CURRENT_DATE)),
+    publisher VARCHAR(150),
+    description TEXT,
+    created_at DATE DEFAULT CURRENT_DATE
+);
+```
+
+#### Создание таблицы связи книг и жанров
+Создаём таблицу для реализации связи многие-ко-многим между книгами и жанрами.
+
+```sql
+-- Таблица 5: Связь книг и жанров (реализация M:N)
+CREATE TABLE book_genre (
+    book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE CASCADE,
+    genre_id INTEGER NOT NULL REFERENCES genre(genre_id) ON DELETE CASCADE,
+    PRIMARY KEY (book_id, genre_id)
+);
+```
+
+#### Создание справочника мест хранения
+Создаём таблицу для учёта физического расположения книг.
+
+```sql
+-- Таблица 6: Места хранения книг
+CREATE TABLE location (
+    location_id SERIAL PRIMARY KEY,
+    room VARCHAR(50) NOT NULL,
+    furniture VARCHAR(50) NOT NULL,
+    shelf VARCHAR(20) NOT NULL,
+    description TEXT
+);
+```
+
+#### Создание таблицы экземпляров книг
+Создаём таблицу для учёта физических экземпляров книг.
+
+```sql
+-- Таблица 7: Физические экземпляры книг
+CREATE TABLE copy (
+    copy_id SERIAL PRIMARY KEY,
+    book_id INTEGER NOT NULL REFERENCES book(book_id) ON DELETE CASCADE,
+    location_id INTEGER REFERENCES location(location_id) ON DELETE SET NULL,
+    inventory_number VARCHAR(50) UNIQUE NOT NULL,
+    acquisition_date DATE DEFAULT CURRENT_DATE,
+    purchase_price NUMERIC(10,2) CHECK (purchase_price >= 0),
+    estimated_value NUMERIC(10,2) CHECK (estimated_value >= 0),
+    condition VARCHAR(20) NOT NULL CHECK (condition IN ('excellent', 'good', 'satisfactory', 'poor')),
+    special_notes TEXT,
+    is_available BOOLEAN DEFAULT TRUE
+);
+```
+
+#### Создание таблицы пользователей
+Создаём таблицу пользователей системы (читателей, библиотекарей, администраторов).
+
+```sql
+-- Таблица 8: Пользователи системы (используем кавычки, т.к. USER - зарезервированное слово)
+CREATE TABLE "user" (
+    user_id SERIAL PRIMARY KEY,
+    last_name VARCHAR(50) NOT NULL,
+    first_name VARCHAR(50) NOT NULL,
+    middle_name VARCHAR(50),
+    birth_date DATE NOT NULL CHECK (birth_date <= CURRENT_DATE),
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    role VARCHAR(20) DEFAULT 'reader' CHECK (role IN ('admin', 'librarian', 'reader')),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### Создание таблицы выдачи книг
+Создаём таблицу для учёта операций выдачи и возврата книг.
+
+```sql
+-- Таблица 9: Журнал выдачи и возврата книг
+CREATE TABLE loan (
+    loan_id SERIAL PRIMARY KEY,
+    copy_id INTEGER NOT NULL REFERENCES copy(copy_id),
+    user_id INTEGER NOT NULL REFERENCES "user"(user_id),
+    loan_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    due_date DATE NOT NULL,
+    return_date DATE,
+    age_check_paused BOOLEAN DEFAULT FALSE,
+    notes TEXT
+);
+```
+
+#### Создание таблицы аудита
+Создаём таблицу для регистрации всех изменений в системе.
+
+```sql
+-- Таблица 10: Журнал аудита изменений
+CREATE TABLE audit_log (
+    log_id SERIAL PRIMARY KEY,
+    table_name VARCHAR(50) NOT NULL,
+    record_id INTEGER NOT NULL,
+    action VARCHAR(10) NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
+    action_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_name VARCHAR(100),
+    old_data JSONB,
+    new_data JSONB
+);
+```
+
+### Порядок выполнения SQL-запросов
+
+Для успешного создания базы данных необходимо выполнять SQL-запросы в следующем порядке:
+
+1. Создание таблицы `age_rating`
+2. Создание таблицы `genre`
+3. Создание таблицы `author`
+4. Создание таблицы `book`
+5. Создание таблицы `book_genre`
+6. Создание таблицы `location`
+7. Создание таблицы `copy`
+8. Создание таблицы `"user"` (в кавычках)
+9. Создание таблицы `loan`
+10. Создание таблицы `audit_log`
+
+### Проверка созданных таблиц
+
+После создания всех таблиц рекомендуется выполнить проверочный запрос:
+
+```sql
+-- Проверка созданных таблиц
+SELECT 
+    table_name,
+    pg_size_pretty(pg_total_relation_size('"' || table_name || '"')) AS size
+FROM information_schema.tables 
+WHERE table_schema = 'public' 
+ORDER BY table_name;
+```
+
 
 
