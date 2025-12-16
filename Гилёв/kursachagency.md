@@ -582,4 +582,4 @@ class RealEstateApp:
 
         # остальной код
 ```
-![2.Добавление записи в таблицу viewings](https://github.com/ait-ester/subd-kursach-414/blob/main/Гилёв/im/gui1.png
+
