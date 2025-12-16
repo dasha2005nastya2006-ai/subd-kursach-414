@@ -882,3 +882,50 @@ def get_sales_report():
     <li>Рейтц К., Шлюссер Т. Автостопом по Python. – СПб.: Питер, 2021. – 592 с.</li>
     <li>Документация по SQL. [Электронный ресурс]. URL: https://www.w3schools.com/sql/</li>
 </ol>
+<p>
+В этом приложении представлена реализация структуры базы данных для учета товаров и продаж в магазине гитар с использованием системы управления базами данных PostgreSQL и языка структурированных запросов SQL. Приведённый SQL-код демонстрирует создание таблиц, определение связей между ними, а также примеры заполнения таблиц тестовыми данными и выполнения запросов.
+</p>
+
+</p>
+CREATE TABLE manufacturers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    country VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE guitars (
+    id SERIAL PRIMARY KEY,
+    model VARCHAR(100) NOT NULL,
+    manufacturer_id INTEGER REFERENCES manufacturers(id),
+    type VARCHAR(20) CHECK (type IN ('acoustic', 'electric', 'bass', 'classical')),
+    price NUMERIC(10,2) NOT NULL CHECK (price > 0),
+    quantity INTEGER DEFAULT 0 CHECK (quantity >= 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE clients (
+    id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    phone VARCHAR(20),
+    email VARCHAR(100),
+    registration_date DATE DEFAULT CURRENT_DATE
+);
+
+CREATE TABLE sales (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER REFERENCES clients(id),
+    sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    total_amount NUMERIC(10,2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'completed'
+);
+
+CREATE TABLE sale_items (
+    id SERIAL PRIMARY KEY,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    guitar_id INTEGER REFERENCES guitars(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price NUMERIC(10,2) NOT NULL
+);
+</p>
