@@ -32,3 +32,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO owner_use
 GRANT TEMPORARY ON DATABASE photo_studio TO owner_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO owner_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO owner_user;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO dba_user;
+GRANT INSERT, UPDATE, DELETE ON post, employee, client, payment_method, contact_method, service, order_info, orders TO dba_user;
+GRANT SELECT ON users TO dba_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dba_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO dba_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO dba_user;
+GRANT SELECT ON service, payment_method, client, post, employee, contact_method TO worker_user;
+GRANT SELECT, INSERT ON orders, order_info, client TO worker_user;
+GRANT UPDATE ON client TO worker_user;
+GRANT USAGE, SELECT ON orders_order_id_seq, order_info_order_info_id_seq, client_client_id_seq TO worker_user;
+GRANT SELECT ON orders, order_info, service, client, payment_method, employee TO accountant_user;
+GRANT SELECT ON orders_order_id_seq, order_info_order_info_id_seq TO accountant_user;
