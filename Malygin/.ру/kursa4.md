@@ -882,4 +882,66 @@ def get_sales_report():
     <li>Рейтц К., Шлюссер Т. Автостопом по Python. – СПб.: Питер, 2021. – 592 с.</li>
     <li>Документация по SQL. [Электронный ресурс]. URL: https://www.w3schools.com/sql/</li>
 </ol>
+-- Создание таблиц
+CREATE TABLE manufacturers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    country VARCHAR(50)
+);
 
+CREATE TABLE guitars (
+    id SERIAL PRIMARY KEY,
+    model VARCHAR(100) NOT NULL,
+    manufacturer_id INTEGER REFERENCES manufacturers(id),
+    type VARCHAR(20) CHECK (type IN ('acoustic', 'electric', 'bass')),
+    price NUMERIC(10,2) NOT NULL,
+    quantity INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE clients (
+    id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    phone VARCHAR(20),
+    registration_date DATE DEFAULT CURRENT_DATE
+);
+
+CREATE TABLE sales (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER REFERENCES clients(id),
+    sale_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    total_amount NUMERIC(10,2) NOT NULL
+);
+
+CREATE TABLE sale_items (
+    id SERIAL PRIMARY KEY,
+    sale_id INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+    guitar_id INTEGER REFERENCES guitars(id),
+    quantity INTEGER NOT NULL,
+    unit_price NUMERIC(10,2) NOT NULL
+);
+
+-- Тестовые данные
+INSERT INTO manufacturers (name, country) VALUES 
+('Fender', 'USA'), ('Gibson', 'USA'), ('Ibanez', 'Japan');
+
+INSERT INTO guitars (model, manufacturer_id, type, price, quantity) VALUES
+('Stratocaster', 1, 'electric', 45000, 10),
+('Les Paul', 2, 'electric', 55000, 5),
+('RG550', 3, 'electric', 40000, 8);
+
+INSERT INTO clients (first_name, last_name, phone) VALUES
+('Иван', 'Петров', '+79101234567'),
+('Мария', 'Сидорова', '+79107654321');
+
+-- Пример запросов
+SELECT g.model, m.name, g.price, g.quantity 
+FROM guitars g 
+JOIN manufacturers m ON g.manufacturer_id = m.id 
+WHERE g.quantity > 0;
+
+SELECT c.first_name, c.last_name, s.sale_date, s.total_amount 
+FROM sales s 
+JOIN clients c ON s.client_id = c.id 
+ORDER BY s.sale_date DESC;
