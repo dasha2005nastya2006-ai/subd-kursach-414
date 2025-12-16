@@ -9,7 +9,6 @@ import hashlib
 from datetime import datetime, date
 import csv
 
-
 DARK_STYLE = """
 QWidget {
     background-color: #2b2b2b;
@@ -118,6 +117,7 @@ class DatabaseManager:
         self.connection = None
         self.current_user = None
         self.current_role = None
+
     def connect(self):
         try:
             self.connection = psycopg2.connect(
@@ -165,7 +165,6 @@ class DatabaseManager:
                 'client': ['select', 'insert', 'update', 'delete'],
                 'payment_method': ['select', 'insert', 'update', 'delete'],
                 'contact_method': ['select', 'insert', 'update', 'delete'],
-                'status': ['select', 'insert', 'update', 'delete'],
                 'service': ['select', 'insert', 'update', 'delete'],
                 'order_info': ['select', 'insert', 'update', 'delete'],
                 'orders': ['select', 'insert', 'update', 'delete'],
@@ -177,7 +176,6 @@ class DatabaseManager:
                 'client': ['select', 'insert', 'update', 'delete'],
                 'payment_method': ['select', 'insert', 'update'],
                 'contact_method': ['select', 'insert', 'update'],
-                'status': ['select'],
                 'service': ['select', 'insert', 'update'],
                 'order_info': ['select', 'insert', 'update'],
                 'orders': ['select', 'insert', 'update', 'delete'],
@@ -293,11 +291,12 @@ class LoginWindow(QDialog):
 
 
 class ReceiptDialog(QDialog):
-    def __init__(self, order_id, client_info, payment_method, cart_items, total_sum, parent=None):
+    def __init__(self, order_id, client_info, payment_method, contact_method, cart_items, total_sum, parent=None):
         super().__init__(parent)
         self.order_id = order_id
         self.client_info = client_info
         self.payment_method = payment_method
+        self.contact_method = contact_method
         self.cart_items = cart_items
         self.total_sum = total_sum
         self.initUI()
@@ -320,6 +319,7 @@ class ReceiptDialog(QDialog):
 {'-' * 40}
 Клиент: {self.client_info}
 Способ оплаты: {self.payment_method}
+Способ связи: {self.contact_method}
 {'-' * 40}
 ПОЗИЦИИ:
 """
@@ -367,6 +367,7 @@ class ReceiptDialog(QDialog):
                     ['Время', current_time.strftime('%H:%M:%S')],
                     ['Клиент', self.client_info],
                     ['Способ оплаты', self.payment_method],
+                    ['Способ связи', self.contact_method],
                     ['', ''],
                     ['Позиции', 'Количество', 'Цена за ед.', 'Сумма']
                 ]
@@ -408,6 +409,7 @@ class ReceiptDialog(QDialog):
                     f.write('-' * 40 + '\n')
                     f.write(f'Клиент: {self.client_info}\n')
                     f.write(f'Способ оплаты: {self.payment_method}\n')
+                    f.write(f'Способ связи: {self.contact_method}\n')
                     f.write('-' * 40 + '\n')
                     f.write('ПОЗИЦИИ:\n\n')
                     for item in self.cart_items:
@@ -473,7 +475,7 @@ class RecordDialog(QDialog):
                 if self.mode == 'add' and column_name.endswith('_id') and column_name != f"{self.table_name}_id":
                     if self.table_name == 'orders' and column_name == 'order_id':
                         continue
-                    if not column_name.startswith(('client_', 'order_', 'payment_', 'service_', 'post_')):
+                    if not column_name.startswith(('client_', 'order_', 'payment_', 'service_', 'post_', 'contact_')):
                         continue
                 label_text = column_name.replace('_', ' ').title()
                 label = QLabel(label_text)
@@ -526,6 +528,7 @@ class RecordDialog(QDialog):
 
         except Exception as e:
             QMessageBox.critical(self, 'Ошибка', f'Не удалось загрузить данные:\n{str(e)}')
+
     def load_foreign_key_data(self, column_name, combo_box):
         try:
             ref_table = column_name.replace('_id', '')
@@ -539,6 +542,8 @@ class RecordDialog(QDialog):
                 query = "SELECT payment_method_id, name FROM payment_method ORDER BY name"
             elif ref_table == 'employee':
                 query = "SELECT employee_id, surname || ' ' || name as full_name FROM employee ORDER BY surname"
+            elif ref_table == 'contact_method':
+                query = "SELECT contact_method_id, name FROM contact_method ORDER BY name"
             else:
                 return
             data, _ = self.db_manager.execute_query(query)
@@ -620,6 +625,7 @@ class RecordDialog(QDialog):
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, 'Ошибка', f'Не удалось сохранить данные:\n{str(e)}')
+
     def get_widget_value(self, widget, data_type):
         if isinstance(widget, QLineEdit):
             text = widget.text().strip()
@@ -745,10 +751,12 @@ class DailySummaryDialog(QDialog):
                     c.surname || ' ' || c.name as client_name,
                     o.total_sum,
                     pm.name as payment_method,
+                    cm.name as contact_method,
                     o.date
                 FROM orders o
                 JOIN client c ON o.client_id = c.client_id
                 JOIN payment_method pm ON o.payment_method_id = pm.payment_method_id
+                JOIN contact_method cm ON o.contact_method_id = cm.contact_method_id
                 WHERE o.date::date = %s
                 ORDER BY o.date
             """
@@ -761,11 +769,13 @@ class DailySummaryDialog(QDialog):
                     client = order[1] if order[1] else "Неизвестный клиент"
                     total = float(order[2]) if order[2] else 0.0
                     payment = order[3] if order[3] else "Неизвестно"
-                    order_time = order[4].strftime('%H:%M') if order[4] else "??:??"
+                    contact = order[4] if order[4] else "Неизвестно"
+                    order_time = order[5].strftime('%H:%M') if order[5] else "??:??"
                     report_lines.append(f"Заказ #{order_id} - {order_time}")
                     report_lines.append(f"  Клиент: {client}")
                     report_lines.append(f"  Сумма: {total:.2f} руб.")
                     report_lines.append(f"  Оплата: {payment}")
+                    report_lines.append(f"  Способ связи: {contact}")
                     report_lines.append("")
             report_lines.append("=" * 50)
             report_lines.append(f"ИТОГО ЗА ДЕНЬ: {total_revenue:.2f} руб.")
@@ -893,7 +903,6 @@ class MainWindow(QMainWindow):
             'client': 'Клиенты',
             'payment_method': 'Способы оплаты',
             'contact_method': 'Способы связи',
-            'status': 'Статусы',
             'service': 'Услуги',
             'order_info': 'Информация о заказах',
             'orders': 'Заказы',
@@ -970,6 +979,7 @@ class MainWindow(QMainWindow):
         order_layout = QFormLayout()
         self.client_combo = QComboBox()
         self.payment_combo = QComboBox()
+        self.contact_combo = QComboBox()
         self.total_label = QLabel('0.00 руб.')
         self.total_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #4CAF50;")
         self.create_order_button = QPushButton('Оформить заказ')
@@ -977,6 +987,7 @@ class MainWindow(QMainWindow):
         self.create_order_button.setEnabled(False)
         order_layout.addRow('Клиент:', self.client_combo)
         order_layout.addRow('Способ оплаты:', self.payment_combo)
+        order_layout.addRow('Способ связи:', self.contact_combo)
         order_layout.addRow('Итоговая сумма:', self.total_label)
         order_layout.addRow('', self.create_order_button)
         order_group.setLayout(order_layout)
@@ -1192,6 +1203,11 @@ class MainWindow(QMainWindow):
             self.payment_combo.addItem('-- Выберите способ оплаты --', None)
             for row in data:
                 self.payment_combo.addItem(row[1], row[0])
+            data, _ = self.db_manager.get_all_data('contact_method')
+            self.contact_combo.clear()
+            self.contact_combo.addItem('-- Выберите способ связи --', None)
+            for row in data:
+                self.contact_combo.addItem(row[1], row[0])
         except Exception as e:
             print(f"Ошибка загрузки данных формы: {e}")
 
@@ -1271,11 +1287,16 @@ class MainWindow(QMainWindow):
         try:
             client_id = self.client_combo.currentData()
             payment_method_id = self.payment_combo.currentData()
+            contact_method_id = self.contact_combo.currentData()
+
             if not client_id:
                 QMessageBox.warning(self, 'Ошибка', 'Выберите клиента')
                 return
             if not payment_method_id:
                 QMessageBox.warning(self, 'Ошибка', 'Выберите способ оплаты')
+                return
+            if not contact_method_id:
+                QMessageBox.warning(self, 'Ошибка', 'Выберите способ связи')
                 return
             if not self.cart_items:
                 QMessageBox.warning(self, 'Ошибка', 'Корзина пуста')
@@ -1284,6 +1305,8 @@ class MainWindow(QMainWindow):
             client_data, _ = self.db_manager.execute_query(client_query, (client_id,))
             payment_query = "SELECT name FROM payment_method WHERE payment_method_id = %s"
             payment_data, _ = self.db_manager.execute_query(payment_query, (payment_method_id,))
+            contact_query = "SELECT name FROM contact_method WHERE contact_method_id = %s"
+            contact_data, _ = self.db_manager.execute_query(contact_query, (contact_method_id,))
             if client_data and client_data[0]:
                 surname, name, patronymic, phone, email = client_data[0]
                 client_info_parts = []
@@ -1307,13 +1330,15 @@ class MainWindow(QMainWindow):
                 client_info = f"Клиент ID: {client_id}"
                 client_info_for_receipt = client_info
             payment_method = payment_data[0][0] if payment_data and payment_data[0] else "Неизвестно"
+            contact_method = contact_data[0][0] if contact_data and contact_data[0] else "Неизвестно"
             total_sum = sum(item['total'] for item in self.cart_items)
             query = """
-                INSERT INTO orders (client_id, payment_method_id, total_sum, date)
-                VALUES (%s, %s, %s, NOW())
+                INSERT INTO orders (client_id, payment_method_id, contact_method_id, total_sum, date)
+                VALUES (%s, %s, %s, %s, NOW())
                 RETURNING order_id
             """
-            order_result = self.db_manager.execute_query_with_return(query, (client_id, payment_method_id, total_sum))
+            order_result = self.db_manager.execute_query_with_return(query, (
+            client_id, payment_method_id, contact_method_id, total_sum))
             if not order_result:
                 raise Exception("Не удалось создать заказ")
             order_id = order_result[0]
@@ -1327,6 +1352,7 @@ class MainWindow(QMainWindow):
                 order_id=order_id,
                 client_info=client_info_for_receipt,
                 payment_method=payment_method,
+                contact_method=contact_method,
                 cart_items=self.cart_items,
                 total_sum=total_sum,
                 parent=self
@@ -1335,6 +1361,7 @@ class MainWindow(QMainWindow):
             self.update_cart_display()
             self.client_combo.setCurrentIndex(0)
             self.payment_combo.setCurrentIndex(0)
+            self.contact_combo.setCurrentIndex(0)
             receipt_dialog.exec()
             QMessageBox.information(self, 'Успех', f'Заказ #{order_id} создан успешно!')
         except Exception as e:
@@ -1353,12 +1380,14 @@ class MainWindow(QMainWindow):
                     s.service_price,
                     (oi.quantity * s.service_price) as total,
                     pm.name as payment_method,
+                    cm.name as contact_method,
                     o.date
                 FROM orders o
                 JOIN client c ON o.client_id = c.client_id
                 JOIN order_info oi ON o.order_id = oi.order_id
                 JOIN service s ON oi.service_id = s.service_id
                 JOIN payment_method pm ON o.payment_method_id = pm.payment_method_id
+                JOIN contact_method cm ON o.contact_method_id = cm.contact_method_id
                 WHERE o.date::date BETWEEN %s AND %s
                 ORDER BY o.date DESC
             """
@@ -1557,6 +1586,7 @@ class MainWindow(QMainWindow):
                           'Система управления фотостудии\n'
                           'Для управления базой данных фотостудии\n'
                           'Поддерживаемые роли: владелец, администратор, работник, бухгалтер')
+
 
 def main():
     app = QApplication(sys.argv)
