@@ -1,4 +1,4 @@
-Пояснение к таблицам, какой запрос, что выполняет!
+<p> Пояснение к таблицам, какой запрос, что выполняет! <p>
  -----------------------
  -----------------------
  Таблицы:
@@ -44,7 +44,7 @@ CREATE TABLE users (user_id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE, p
 
 Пользователи:
 INSERT INTO users (username, password_hash, role, full_name) VALUES ('admin', %s, 'admin', 'администратор системы'), ('seller1', %s, 'seller', 'продавец'), ('accountant1', %s, 'accountant', 'бухгалтер') ON CONFLICT (username) DO NOTHING;
-# %s - переменная в ЯП Python, служащая для приема вводимых пользователем данных. В данном случае вводятся данные в столбец "password_hash" #
+# %s - переменная в Python, служащая для приема вводимых пользователем данных. В данном случае вводятся данные в столбец "password_hash" #
 
 
 ==========
@@ -64,7 +64,7 @@ INSERT INTO contact_method (name) VALUES ('Телефон'), ('Email'), ('Telegr
 
 Авторизация:
 SELECT user_id, username, role, full_name FROM users WHERE username = %s AND password_hash = %s
-# тут данные берутся из олей ввода в программе, сравниваются с данными в таблице. в коде предусмотрен обработчик ошибок, который не даст войти с неверными данными. #
+# тут данные берутся из полей ввода в программе, сравниваются с данными в таблице. в коде предусмотрен обработчик ошибок, который не даст войти с неверными данными. #
 
 
 ==========
@@ -80,7 +80,7 @@ SELECT user_id, username, role, full_name FROM users WHERE username = %s AND pas
 Дополнительные данные:
 - ветка 1:
 SELECT o.order_id, c.name, o.date, o.total_sum FROM orders o JOIN client c ON o.client_id = c.client_id ORDER BY o.date DESC LIMIT 10;
-# Запрос, выводящий список последних десяти покупок #
+# Запрос, выводящий список последние десять покупок #
 
 SELECT COUNT(*) FROM product;
 # Запрос, выводящий список товаров #
