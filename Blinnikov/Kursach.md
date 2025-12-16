@@ -1043,7 +1043,7 @@
 #### Ограничения UNIQUE: Для уникальных значений (*post.name, payment_method.name* и др.).
 
 ### 3.5. Примеры запросов, демонстрирующие логическую структуру
-\```python
+```sql
 SELECT 
     o.order_id,
     o.date,
@@ -1056,10 +1056,10 @@ JOIN client c ON o.client_id = c.client_id
 JOIN payment_method pm ON o.payment_method_id = pm.payment_method_id
 JOIN contact_method cm ON o.contact_method_id = cm.contact_method_id
 WHERE o.order_id = 1;
-\```
+```
 
 
-\```python
+```sql
 SELECT 
     s.name as service_name,
     oi.quantity,
@@ -1068,10 +1068,10 @@ SELECT
 FROM order_info oi
 JOIN service s ON oi.service_id = s.service_id
 WHERE oi.order_id = 1;
-\```
+```
 
 
-\```python
+```sql
 SELECT 
     c.client_id,
     c.surname || ' ' || c.name as client_name,
@@ -1081,7 +1081,7 @@ SELECT
 FROM client c
 LEFT JOIN orders o ON c.client_id = o.client_id
 GROUP BY c.client_id, c.surname, c.name, c.phone;
-\```
+```
 
 ### 3.6. Преимущества выбранной логической структуры
 - Гибкость: Возможность легко добавлять новые услуги, способы оплаты и связи без изменения структуры основных таблиц.
