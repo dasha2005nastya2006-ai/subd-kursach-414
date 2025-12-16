@@ -1094,3 +1094,265 @@ GROUP BY c.client_id, c.surname, c.name, c.phone;
 
 # <p align="center"> Глава 4 </p>
 
+## 4. Физическая структура базы данных
+Физическая модель определяет конкретную реализацию логической структуры в выбранной СУБД PostgreSQL с учетом требований к производительности, надежности и безопасности.
+
+### 4.1. Выбор и обоснование СУБД
+Выбранная СУБД: PostgreSQL 15
+
+Обоснование выбора:
+
+| Критерий           | PostgreSQL 15                                                       | Альтернативы (MySQL, SQLite)                           | Решение
+|--------------------|---------------------------------------------------------------------|--------------------------------------------------------|-------------------------------------------------------------
+| Лицензия           | Открытая (PostgreSQL License)                                       | MySQL (GPL), SQLite (Public Domain)                    | Все подходят, но PostgreSQL имеет более либеральную лицензию
+| Надежность         | Полная поддержка ACID, WAL (Write-Ahead Logging)                    | MySQL (зависит от движка), SQLite (ACID)               | PostgreSQL обеспечивает максимальную надежность
+| Производительность | Оптимизатор запросов, параллельное выполнение, индексы разных типов | MySQL (быстрые простые запросы), SQLite (однопоточный) | PostgreSQL лучше для сложных аналитических запросов
+| Безопасность       | SELinux интеграция, SSL, Row Security Policies                      | MySQL (базовые возможности), SQLite (минимальная)      | Критично для коммерческих данных
+| Типы данных        | Богатые встроенные типы + возможность создания своих                | MySQL (ограниченные), SQLite (базовые)                 | NUMERIC для денежных сумм, JSON для гибкости
+| Масштабируемость   | Репликация, партиционирование, шардинг                              | MySQL (репликация), SQLite (нет)                       | Возможность роста бизнеса
+| Сообщество         | Активное, корпоративная поддержка                                   | MySQL (активное), SQLite (скромное)                    | Гарантия долгосрочной поддержки
+
+Итог: PostgreSQL выбран как наиболее надежная, безопасная и функциональная СУБД для бизнес-приложения.
+
+### 4.2. Параметры базы данных
+```sql
+CREATE DATABASE photo_studio;
+```
+
+### 4.3. Типы данных и их обоснование
+Критерии выбора типов данных:
+
+- Точность - для финансовых расчетов
+
+- Производительность - для частых операций
+
+- Безопасность - для предотвращения переполнения
+
+- Совместимость - с клиентскими приложениями
+
+Таблица соответствия типов данных:
+
+| Логический тип           | Физический тип (PostgreSQL) | Обоснование                                            | Пример
+|--------------------------|-----------------------------|--------------------------------------------------------|-------------------------------
+| Уникальный идентификатор | SERIAL или BIGSERIAL        | Автоинкремент, 4 байта (SERIAL) или 8 байт (BIGSERIAL) | client_id SERIAL PRIMARY KEY
+| ФИО, названия            | TEXT                        | Неограниченная длина, эффективное хранение             | surname TEXT NOT NULL
+| Телефон, короткие коды   | VARCHAR(255)                | Ограничение длины, индексация                          | phone VARCHAR(255)
+| Денежные суммы           | NUMERIC(10,2)               | Точность 2 знака после запятой, без ошибок округления  | service_price NUMERIC(10,2)
+| Количество, целые числа  | INTEGER                     | 4 байта, диапазон ±2.1 млрд                            | quantity INTEGER
+| Даты и время             | TIMESTAMP WITH TIME ZONE    | Учет часовых поясов, точность до микросекунд           | date TIMESTAMPTZ DEFAULT NOW()
+| Хэши паролей             | TEXT                        | Длина SHA-256 хэша 64 символа                          | password_hash TEXT NOT NULL
+| Перечисляемые значения   | TEXT с CHECK constraint     | Простота, читаемость                                   | role TEXT CHECK (role IN (...))
+
+### 4.4. Стратегия именования
+Принципы именования:
+
+- Таблицы: имена в единственном числе, snake_case
+
+- Столбцы: snake_case, понятные названия
+
+- Первичные ключи: (table_name)_id
+
+- Внешние ключи: (referenced_table_name)_id
+
+- Индексы: idx_(table_name)_(columns)
+
+- Ограничения: (table_name)_(column_name)_(constraint_type)
+
+Примеры:
+```sql
+CREATE TABLE client (...);
+```
+*client_id* - *client*, а не *client_id* - *clients*
+
+```sql
+CREATE TABLE order_info (...);
+```
+*order_info_id* - *order_info*, а не *order_info* - *order_infos*
+
+```sql
+CREATE INDEX idx_orders_client_id_date ON orders(client_id, date);
+ALTER TABLE order_info ADD CONSTRAINT order_info_quantity_positive 
+    CHECK (quantity > 0);
+```
+
+### 4.5. Оптимизация производительности
+#### 1. Стратегия индексирования:
+
+```sql
+CREATE INDEX idx_orders_date_client_total 
+    ON orders(date, client_id, total_sum);
+```
+
+```sql
+CREATE INDEX idx_order_info_service_quantity 
+    ON order_info(service_id, quantity);
+```
+
+```sql
+CREATE INDEX idx_clients_name_phone 
+    ON clients(surname, name, phone);
+```
+
+```sql
+CREATE INDEX idx_orders_recent 
+    ON orders(date) 
+    WHERE date > CURRENT_DATE - INTERVAL '90 days';
+```
+
+#### 2. Партиционирование (для больших объемов данных):
+```sql
+CREATE TABLE orders (
+) PARTITION BY RANGE (date);
+```
+
+```sql
+CREATE TABLE orders_2024_01 PARTITION OF orders
+    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+```
+
+#### 3. Материализованные представления для отчетов:
+```sql
+CREATE MATERIALIZED VIEW mv_daily_stats AS
+SELECT 
+    DATE(date) as report_date,
+    COUNT(*) as orders_count,
+    SUM(total_sum) as total_revenue,
+    COUNT(DISTINCT client_id) as unique_clients
+FROM orders
+GROUP BY DATE(date);
+```
+
+### 4.6. Настройки безопасности
+#### 1. Шифрование соединений:
+```sql
+ssl = on
+ssl_cert_file = 'server.crt'
+ssl_key_file = 'server.key'
+```
+
+#### 2. Аудит и мониторинг:
+```sql
+log_statement = 'all'
+log_connections = on
+log_disconnections = on
+```
+
+```sql
+CREATE EXTENSION pgaudit;
+SET pgaudit.log = 'all, -misc';
+```
+
+#### 3. Безопасность на уровне строк (RLS):
+```sql
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+```
+
+```sql
+CREATE POLICY accountant_policy ON orders
+    FOR SELECT TO accountant_user
+    USING (EXTRACT(YEAR FROM date) = EXTRACT(YEAR FROM CURRENT_DATE));
+```
+
+### 4.7. Стратегия хранения
+#### 1. Tablespace для разных типов данных:
+```sql
+CREATE TABLESPACE fast_ssd LOCATION '/ssd/postgresql/data';
+```
+
+```sql
+CREATE TABLESPACE archive_hdd LOCATION '/hdd/postgresql/archive';
+```
+
+```sql
+CREATE TABLE orders (...)
+    TABLESPACE fast_ssd;
+```
+
+#### 2. Настройка autovacuum:
+```sql
+autovacuum_vacuum_scale_factor = 0.1
+autovacuum_analyze_scale_factor = 0.05
+autovacuum_vacuum_cost_delay = 10ms
+```
+
+### 4.8. Мониторинг и обслуживание
+Ключевые метрики для мониторинга:
+
+- Размер БД: *SELECT pg_size_pretty(pg_database_size('photo_studio'));*
+
+- Активные подключения: *SELECT count(*) FROM pg_stat_activity;*
+
+- Эффективность кэша: SELECT blks_hit*100/(blks_hit+blks_read) as cache_hit_ratio FROM pg_stat_database WHERE datname='photo_studio';
+
+- Медленные запросы: через *pg_stat_statements*
+
+План обслуживания:
+
+- Ежедневно: Проверка логов ошибок, мониторинг места на диске
+
+- Еженедельно: Анализ медленных запросов, обновление статистики
+
+- Ежемесячно: Переиндексация фрагментированных индексов, проверка целостности
+
+- Ежеквартально: Анализ роста данных, планирование масштабирования
+
+### 4.9. Резервное копирование и восстановление
+Многоуровневая стратегия:
+```sql
+archive_mode = on
+archive_command = 'cp %p /backup/wal_archive/%f'
+```
+
+```sql
+pg_dump -Fc -b -v -f /backup/full_$(date +%Y%m%d).dump photo_studio
+```
+
+```sql
+pg_basebackup -D /backup/monthly/$(date +%Y%m) -Ft -z
+```
+
+Процедура восстановления:
+```sql
+pg_restore -C -d postgres /backup/full_20241215.dump
+```
+
+```sql
+recovery_target_time = '2024-12-15 14:30:00'
+```
+
+### 4.10. Миграция и обновление
+План миграции при изменении схемы:
+
+- Создание бэкапа перед изменениями
+
+- Использование транзакций для атомарности изменений
+
+- Версионирование миграционных скриптов
+
+- Тестирование на staging-окружении
+
+- Откат при обнаружении проблем
+
+Пример миграционного скрипта:
+```sql
+BEGIN;
+```
+
+```sql
+ALTER TABLE client ADD COLUMN discount_card_number VARCHAR(20) DEFAULT NULL;
+```
+
+```sql
+CREATE INDEX idx_clients_discount_card ON client(discount_card_number);
+```
+
+```sql
+COMMIT;
+```
+
+Физическая структура спроектирована с учетом текущих и будущих потребностей фотостудии, обеспечивая баланс между производительностью, надежностью и простотой поддержки.
+
+
+
+
+# <p align="center"> Глава 5 </p>
