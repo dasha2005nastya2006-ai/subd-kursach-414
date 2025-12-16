@@ -882,9 +882,3 @@ def get_sales_report():
     <li>Рейтц К., Шлюссер Т. Автостопом по Python. – СПб.: Питер, 2021. – 592 с.</li>
     <li>Документация по SQL. [Электронный ресурс]. URL: https://www.w3schools.com/sql/</li>
 </ol>
--- Создание таблиц
-CREATE TABLE manufacturers (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    country VARCHAR(50)
-);
