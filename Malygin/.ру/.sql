@@ -1,4 +1,4 @@
-<p> Пояснение к таблицам, какой запрос, что выполняет! <p>
+ Пояснение к таблицам, какой запрос, что выполняет!
  -----------------------
  -----------------------
  Таблицы:
@@ -43,8 +43,8 @@ CREATE TABLE users (user_id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE, p
 
 
 Пользователи:
-INSERT INTO users (username, password_hash, role, full_name) VALUES ('admin', %s, 'admin', 'администратор системы'), ('seller1', %s, 'seller', 'продавец'), ('accountant1', %s, 'accountant', 'бухгалтер') ON CONFLICT (username) DO NOTHING;
-# %s - переменная в Python, служащая для приема вводимых пользователем данных. В данном случае вводятся данные в столбец "password_hash" #
+INSERT INTO users (username, password_hash, role, full_name) VALUES ('admin', 'admin', 'администратор системы'), ('seller1', %s, 'seller', 'продавец'), ('accountant1', %s, 'accountant', 'бухгалтер') ON CONFLICT (username) DO NOTHING;
+#  - переменная в Python, служащая для приема вводимых пользователем данных. В данном случае вводятся данные в столбец "password_hash" #
 
 
 ==========
@@ -108,10 +108,12 @@ SELECT COALESCE(AVG(total_sum), 0) FROM orders;
 
 -- ВЕТКА №2
 
- для входа в базу данных нужно сначала войти в саму СУБД (логин postgres, пароль pgadmin), далее ввести данные для входа роли.
+ Для входа в базу данных нужно сначала войти в саму СУБД (логин postgres, пароль pgadmin), далее ввести данные для входа роли.
 admin - admin123 # Админ (логин - пароль) #
 seller1 - seller123 # Продавец (логин - пароль) #
 accountant1 - accountant123 # Бухгалтер (логин - пароль) #
+
+Ну вот, это все запросы таблиц в моей БД, хотелось бы добавить, что разарботка этой бд и интерфейса к ней далась нелегко, но считаю, что с этой задачей я справился более чем хорошо.
 
 
 
