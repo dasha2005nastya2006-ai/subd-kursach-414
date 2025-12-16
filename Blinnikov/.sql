@@ -25,3 +25,10 @@ CREATE TABLE orders (order_id SERIAL PRIMARY KEY, client_id INT REFERENCES clien
 CREATE TABLE users (user_id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('owner', 'administrator', 'worker', 'accountant')), name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 # пользователи бд
 
+
+GRANT CONNECT ON DATABASE photo_studio TO owner_user, dba_user, accountant_user, worker_user;
+GRANT USAGE ON SCHEMA public TO owner_user, dba_user, accountant_user, worker_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO owner_user;
+GRANT TEMPORARY ON DATABASE photo_studio TO owner_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO owner_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO owner_user;
