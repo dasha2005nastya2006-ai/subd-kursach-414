@@ -984,15 +984,15 @@
 ### 3.2. Реализация связей между таблицами
 Связи из концептуальной модели реализованы через ограничения внешнего ключа (FOREIGN KEY):
 
-│ Связь (Концептуальная)      │ Реализация в БД                                               │ Тип связи в БД         │ Примечание
-│-----------------------------│---------------------------------------------------------------│------------------------│----------------------------------------------
-│ Post(1) - Employee(N)       │ *employee.post_id → post.post_id*                             │ 1:N	           │ Каждый сотрудник ссылается на одну должность
-│ Client(1) - Order(N)        │ *orders.client_id → client.client_id*                         │ 1:N                    │ Каждый заказ ссылается на одного клиента
-│ PaymentMethod(1) - Order(N) │ *orders.payment_method_id → payment_method.payment_method_id* │ 1:N                    │ Связь заказа со способом оплаты
-│ ContactMethod(1) - Order(N) │ *orders.contact_method_id → contact_method.contact_method_id* │ 1:N	           │ Связь заказа со способом связи
-│ Order(1) - OrderInfo(N)     │ *order_info.order_id → orders.order_id*                       │ 1:N	           │ Детализация заказа
-│ Service(1) - OrderInfo(N)   │ *order_info.service_id → service.service_id*                  │ 1:N	           │ Указание услуги в составе заказа
-│ Order(M) - Service(N)       │ Реализована через *order_info* как две связи 1:N              │ M:N	           │ Косвенная связь через промежуточную таблицу
+│ Связь (Концептуальная)      │ Реализация в БД                                             │ Тип связи в БД │ Примечание
+│-----------------------------│-------------------------------------------------------------│----------------│----------------------------------------------
+│ Post(1) - Employee(N)       │ employee.post_id → post.post_id                             │ 1:N	          │ Каждый сотрудник ссылается на одну должность
+│ Client(1) - Order(N)        │ orders.client_id → client.client_id                         │ 1:N            │ Каждый заказ ссылается на одного клиента
+│ PaymentMethod(1) - Order(N) │ orders.payment_method_id → payment_method.payment_method_id │ 1:N            │ Связь заказа со способом оплаты
+│ ContactMethod(1) - Order(N) │ orders.contact_method_id → contact_method.contact_method_id │ 1:N	          │ Связь заказа со способом связи
+│ Order(1) - OrderInfo(N)     │ order_info.order_id → orders.order_id                       │ 1:N	          │ Детализация заказа
+│ Service(1) - OrderInfo(N)   │ order_info.service_id → service.service_id                  │ 1:N	          │ Указание услуги в составе заказа
+│ Order(M) - Service(N)       │ Реализована через *order_info как две связи 1:N             │ M:N	          │ Косвенная связь через промежуточную таблицу
 
 ### 3.3. Нормализация базы данных
 #### База данных приведена к третьей нормальной форме (3NF):
