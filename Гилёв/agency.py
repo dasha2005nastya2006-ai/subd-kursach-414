@@ -1,2997 +1,2672 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox
+
+import fields
 import psycopg2
-from psycopg2 import sql
-from datetime import datetime, date
-import sys
+from datetime import datetime
+
+import row
+
 
 class RealEstateApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("РИЭЛТОРСКОЕ АГЕНТСТВО СЫКТЫВКАР")
+        self.root.title("Риэлторское агентство - Управление базой данных")
         self.root.geometry("1200x700")
-        
-        # Настройка стилей
-        style = ttk.Style()
-        style.theme_use('clam')
-        
-        # Цветовая схема
-        self.colors = {
-            'bg': '#f0f0f0',
-            'header': '#2c3e50',
-            'button': '#3498db',
-            'button_hover': '#2980b9',
-            'success': '#27ae60',
-            'warning': '#e74c3c'
+
+        # Получаем размеры экрана
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # Устанавливаем размеры окна в зависимости от разрешения экрана
+        if screen_width >= 1920 and screen_height >= 1080:  # Full HD и выше
+            window_width = int(screen_width * 0.8)
+            window_height = int(screen_height * 0.8)
+        elif screen_width >= 1366 and screen_height >= 768:  # HD
+            window_width = int(screen_width * 0.85)
+            window_height = int(screen_height * 0.85)
+        else:  # Низкое разрешение
+            window_width = int(screen_width * 0.9)
+            window_height = int(screen_height * 0.9)
+
+        # Центрируем окно
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        # Минимальный размер окна
+        self.root.minsize(800, 600)
+
+        # Параметры подключения к БД
+        self.conn_params = {
+            'dbname': 'agency',
+            'user': 'postgres',
+            'password': '07072006',
+            'host': 'localhost',
+            'port': '5432'
         }
-        
-        self.root.configure(bg=self.colors['bg'])
-        
-        # Подключение к БД
-        self.db_connection = self.connect_to_db()
-        
-        # Создание интерфейса
+
+        self.conn = None
+        self.connect_db()
+
+        # Переменные для адаптивности
+        self.font_size = self.calculate_font_size(window_width)
+        self.padding = self.calculate_padding(window_width)
+        self.button_width = self.calculate_button_width(window_width)
+
         self.create_widgets()
-        
-        # Загрузка начальных данных
-        self.load_initial_data()
-        
-    def connect_to_db(self):
-        """Подключение к PostgreSQL базе данных"""
-        try:
-            conn = psycopg2.connect(
-                host="localhost",
-                database="gillop",
-                user="gillop",
-                password="22081921",  # Замените на ваш пароль
-                port="5432"
-            )
-            return conn
-        except Exception as e:
-            messagebox.showerror("Ошибка подключения", f"Не удалось подключиться к БД:\n{str(e)}")
-            sys.exit(1)
-    
-    def create_widgets(self):
-        """Создание элементов интерфейса"""
-        # Создание вкладок
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
-        
-        # Вкладки
-        self.create_properties_tab()
-        self.create_viewings_tab()
-        self.create_clients_tab()
-        self.create_agents_tab()
-        self.create_deals_tab()
-        self.create_reports_tab()
-        
-        # Статус бар
-        self.status_bar = tk.Label(
-            self.root,
-            text="Готово",
-            bd=1,
-            relief=tk.SUNKEN,
-            anchor=tk.W,
-            bg='white'
-        )
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-    
-    def create_properties_tab(self):
-        """Вкладка объектов недвижимости"""
-        self.tab_properties = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_properties, text="Объекты")
-        
-        # Панель управления
-        control_frame = tk.Frame(self.tab_properties, bg=self.colors['bg'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(control_frame, text="Фильтры:", bg=self.colors['bg']).pack(side=tk.LEFT, padx=5)
-        
-        # Фильтры
-        self.filter_type = ttk.Combobox(control_frame, values=['Все', 'apartment', 'house', 'commercial', 'land'], width=15)
-        self.filter_type.pack(side=tk.LEFT, padx=5)
-        self.filter_type.set('Все')
-        
-        self.filter_status = ttk.Combobox(control_frame, values=['Все', 'available', 'reserved', 'sold', 'rented'], width=15)
-        self.filter_status.pack(side=tk.LEFT, padx=5)
-        self.filter_status.set('available')
-        
-        ttk.Button(control_frame, text="Применить фильтры", command=self.load_properties).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Добавить объект", command=self.add_property_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Редактировать", command=self.edit_property_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Обновить", command=self.load_properties).pack(side=tk.LEFT, padx=5)
-        
-        # Таблица объектов
-        columns = ('ID', 'Адрес', 'Район', 'Тип', 'Сделка', 'Цена', 'Площадь', 'Комнат', 'Статус', 'Агент')
-        self.tree_properties = ttk.Treeview(self.tab_properties, columns=columns, show='headings', height=20)
-        
-        # Настройка колонок
-        col_widths = [50, 250, 100, 80, 80, 100, 70, 70, 100, 150]
-        for col, width in zip(columns, col_widths):
-            self.tree_properties.heading(col, text=col)
-            self.tree_properties.column(col, width=width, anchor='center')
-        
-        # Скроллбар
-        scrollbar = ttk.Scrollbar(self.tab_properties, orient=tk.VERTICAL, command=self.tree_properties.yview)
-        self.tree_properties.configure(yscrollcommand=scrollbar.set)
-        
-        # Упаковка
-        self.tree_properties.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
-        
-        # Контекстное меню
-        self.context_menu_properties = tk.Menu(self.tree_properties, tearoff=0)
-        self.context_menu_properties.add_command(label="Просмотреть детали", command=self.view_property_details)
-        self.context_menu_properties.add_command(label="Редактировать", command=self.edit_property_dialog)
-        self.context_menu_properties.add_command(label="Изменить статус", command=self.change_property_status)
-        self.context_menu_properties.add_separator()
-        self.context_menu_properties.add_command(label="Создать сделку", command=self.create_deal_from_property)
-        self.context_menu_properties.add_command(label="Запланировать просмотр", command=self.schedule_viewing_from_property)
-        self.context_menu_properties.add_separator()
-        self.context_menu_properties.add_command(label="Удалить", command=self.delete_property)
-        
-        self.tree_properties.bind("<Button-3>", self.show_context_menu_properties)
-        self.tree_properties.bind("<Double-Button-1>", lambda e: self.view_property_details())
-    
-    def create_viewings_tab(self):
-        """Вкладка просмотров"""
-        self.tab_viewings = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_viewings, text="Просмотры")
-        
-        # Панель управления
-        control_frame = tk.Frame(self.tab_viewings, bg=self.colors['bg'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(control_frame, text="Статус:", bg=self.colors['bg']).pack(side=tk.LEFT, padx=5)
-        
-        self.filter_viewing_status = ttk.Combobox(control_frame, 
-                                                  values=['Все', 'scheduled', 'completed', 'cancelled', 'no_show'], 
-                                                  width=15)
-        self.filter_viewing_status.pack(side=tk.LEFT, padx=5)
-        self.filter_viewing_status.set('scheduled')
-        
-        ttk.Button(control_frame, text="Сегодня", 
-                  command=lambda: self.load_viewings('today')).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Неделя", 
-                  command=lambda: self.load_viewings('week')).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Все", 
-                  command=lambda: self.load_viewings('all')).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Добавить просмотр", 
-                  command=self.add_viewing_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Редактировать", 
-                  command=self.edit_viewing_dialog).pack(side=tk.LEFT, padx=5)
-        
-        # Таблица просмотров
-        columns = ('ID', 'Дата', 'Время', 'Объект', 'Клиент', 'Агент', 'Статус', 'Оценка')
-        self.tree_viewings = ttk.Treeview(self.tab_viewings, columns=columns, show='headings', height=20)
-        
-        col_widths = [50, 100, 80, 200, 150, 150, 100, 70]
-        for col, width in zip(columns, col_widths):
-            self.tree_viewings.heading(col, text=col)
-            self.tree_viewings.column(col, width=width, anchor='center')
-        
-        # Скроллбар
-        scrollbar = ttk.Scrollbar(self.tab_viewings, orient=tk.VERTICAL, command=self.tree_viewings.yview)
-        self.tree_viewings.configure(yscrollcommand=scrollbar.set)
-        
-        self.tree_viewings.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
-        
-        # Контекстное меню
-        self.context_menu_viewings = tk.Menu(self.tree_viewings, tearoff=0)
-        self.context_menu_viewings.add_command(label="Отметить как завершенный", 
-                                              command=lambda: self.update_viewing_status('completed'))
-        self.context_menu_viewings.add_command(label="Отменить просмотр", 
-                                              command=lambda: self.update_viewing_status('cancelled'))
-        self.context_menu_viewings.add_command(label="Неявка", 
-                                              command=lambda: self.update_viewing_status('no_show'))
-        self.context_menu_viewings.add_separator()
-        self.context_menu_viewings.add_command(label="Редактировать", 
-                                              command=self.edit_viewing_dialog)
-        self.context_menu_viewings.add_command(label="Добавить отзыв", 
-                                              command=self.add_viewing_feedback)
-        self.context_menu_viewings.add_separator()
-        self.context_menu_viewings.add_command(label="Создать сделку", 
-                                              command=self.create_deal_from_viewing)
-        self.context_menu_viewings.add_separator()
-        self.context_menu_viewings.add_command(label="Удалить", 
-                                              command=self.delete_viewing)
-        
-        self.tree_viewings.bind("<Button-3>", self.show_context_menu_viewings)
-        self.tree_viewings.bind("<Double-Button-1>", lambda e: self.edit_viewing_dialog())
-    
-    def create_clients_tab(self):
-        """Вкладка клиентов"""
-        self.tab_clients = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_clients, text="Клиенты")
-        
-        # Панель управления
-        control_frame = tk.Frame(self.tab_clients, bg=self.colors['bg'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(control_frame, text="Поиск:", bg=self.colors['bg']).pack(side=tk.LEFT, padx=5)
-        
-        self.search_client = tk.Entry(control_frame, width=30)
-        self.search_client.pack(side=tk.LEFT, padx=5)
-        self.search_client.bind('<KeyRelease>', self.search_clients)
-        
-        ttk.Button(control_frame, text="Добавить клиента", 
-                  command=self.add_client_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Редактировать", 
-                  command=self.edit_client_dialog).pack(side=tk.LEFT, padx=5)
-        
-        # Таблица клиентов
-        columns = ('ID', 'Фамилия', 'Имя', 'Телефон', 'Email', 'Дата регистрации')
-        self.tree_clients = ttk.Treeview(self.tab_clients, columns=columns, show='headings', height=20)
-        
-        col_widths = [50, 120, 100, 120, 200, 120]
-        for col, width in zip(columns, col_widths):
-            self.tree_clients.heading(col, text=col)
-            self.tree_clients.column(col, width=width, anchor='center')
-        
-        scrollbar = ttk.Scrollbar(self.tab_clients, orient=tk.VERTICAL, command=self.tree_clients.yview)
-        self.tree_clients.configure(yscrollcommand=scrollbar.set)
-        
-        self.tree_clients.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
-        
-        # Контекстное меню
-        self.context_menu_clients = tk.Menu(self.tree_clients, tearoff=0)
-        self.context_menu_clients.add_command(label="История просмотров", 
-                                             command=self.show_client_viewings)
-        self.context_menu_clients.add_command(label="История сделок", 
-                                             command=self.show_client_deals)
-        self.context_menu_clients.add_command(label="Редактировать", 
-                                             command=self.edit_client_dialog)
-        self.context_menu_clients.add_separator()
-        self.context_menu_clients.add_command(label="Удалить", 
-                                             command=self.delete_client)
-        
-        self.tree_clients.bind("<Button-3>", self.show_context_menu_clients)
-        self.tree_clients.bind("<Double-Button-1>", lambda e: self.edit_client_dialog())
-    
-    def create_agents_tab(self):
-        """Вкладка агентов"""
-        self.tab_agents = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_agents, text="Агенты")
-        
-        # Панель управления
-        control_frame = tk.Frame(self.tab_agents, bg=self.colors['bg'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Button(control_frame, text="Добавить агента", 
-                  command=self.add_agent_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Редактировать", 
-                  command=self.edit_agent_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Обновить статистику", 
-                  command=self.load_agents).pack(side=tk.LEFT, padx=5)
-        
-        # Таблица агентов
-        columns = ('ID', 'Фамилия', 'Имя', 'Телефон', 'Email', 'Лицензия', 'Комиссия %', 'Активен')
-        self.tree_agents = ttk.Treeview(self.tab_agents, columns=columns, show='headings', height=20)
-        
-        col_widths = [50, 120, 100, 120, 200, 100, 80, 70]
-        for col, width in zip(columns, col_widths):
-            self.tree_agents.heading(col, text=col)
-            self.tree_agents.column(col, width=width, anchor='center')
-        
-        scrollbar = ttk.Scrollbar(self.tab_agents, orient=tk.VERTICAL, command=self.tree_agents.yview)
-        self.tree_agents.configure(yscrollcommand=scrollbar.set)
-        
-        self.tree_agents.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
-        
-        # Статистика агента
-        
-    
-    def create_deals_tab(self):
-        """Вкладка сделок"""
-        self.tab_deals = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_deals, text="Сделки")
-        
-        # Панель управления
-        control_frame = tk.Frame(self.tab_deals, bg=self.colors['bg'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(control_frame, text="Статус:", bg=self.colors['bg']).pack(side=tk.LEFT, padx=5)
-        
-        self.filter_deal_status = ttk.Combobox(control_frame, 
-                                               values=['Все', 'in_progress', 'completed', 'cancelled'], 
-                                               width=15)
-        self.filter_deal_status.pack(side=tk.LEFT, padx=5)
-        self.filter_deal_status.set('in_progress')
-        
-        ttk.Button(control_frame, text="Применить", 
-                  command=self.load_deals).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Новая сделка", 
-                  command=self.add_deal_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Редактировать", 
-                  command=self.edit_deal_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Добавить платеж", 
-                  command=self.add_payment_dialog).pack(side=tk.LEFT, padx=5)
-        
-        # Таблица сделок
-        columns = ('ID', 'Дата', 'Объект', 'Покупатель', 'Продавец', 'Агент', 'Сумма', 'Комиссия', 'Статус')
-        self.tree_deals = ttk.Treeview(self.tab_deals, columns=columns, show='headings', height=15)
-        
-        col_widths = [50, 100, 150, 120, 120, 120, 100, 100, 100]
-        for col, width in zip(columns, col_widths):
-            self.tree_deals.heading(col, text=col)
-            self.tree_deals.column(col, width=width, anchor='center')
-        
-        scrollbar = ttk.Scrollbar(self.tab_deals, orient=tk.VERTICAL, command=self.tree_deals.yview)
-        self.tree_deals.configure(yscrollcommand=scrollbar.set)
-        
-        self.tree_deals.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
-        
-        # Таблица платежей
-        payment_frame = tk.LabelFrame(self.tab_deals, text="Платежи по сделке", bg=self.colors['bg'])
-        payment_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Панель управления платежами
-        payment_control = tk.Frame(payment_frame, bg=self.colors['bg'])
-        payment_control.pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Button(payment_control, text="Редактировать платеж", 
-                  command=self.edit_payment_dialog).pack(side=tk.LEFT, padx=5)
-        ttk.Button(payment_control, text="Удалить платеж", 
-                  command=self.delete_payment).pack(side=tk.LEFT, padx=5)
-        
-        columns_payments = ('ID', 'Дата', 'Сумма', 'Тип', 'Метод', 'Статус', 'Примечания')
-        self.tree_payments = ttk.Treeview(payment_frame, columns=columns_payments, show='headings', height=8)
-        
-        col_widths_payments = [50, 100, 100, 100, 100, 100, 150]
-        for col, width in zip(columns_payments, col_widths_payments):
-            self.tree_payments.heading(col, text=col)
-            self.tree_payments.column(col, width=width, anchor='center')
-        
-        scrollbar_payments = ttk.Scrollbar(payment_frame, orient=tk.VERTICAL, command=self.tree_payments.yview)
-        self.tree_payments.configure(yscrollcommand=scrollbar_payments.set)
-        
-        self.tree_payments.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
-        scrollbar_payments.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
-        
-        self.tree_deals.bind('<<TreeviewSelect>>', self.show_deal_payments)
-        self.tree_deals.bind("<Double-Button-1>", lambda e: self.edit_deal_dialog())
-        
-        # Контекстное меню для сделок
-        self.context_menu_deals = tk.Menu(self.tree_deals, tearoff=0)
-        self.context_menu_deals.add_command(label="Редактировать", command=self.edit_deal_dialog)
-        self.context_menu_deals.add_command(label="Изменить статус", command=self.change_deal_status)
-        self.context_menu_deals.add_separator()
-        self.context_menu_deals.add_command(label="Добавить платеж", command=self.add_payment_dialog)
-        self.context_menu_deals.add_separator()
-        self.context_menu_deals.add_command(label="Удалить", command=self.delete_deal)
-        
-        self.tree_deals.bind("<Button-3>", self.show_context_menu_deals)
-    
-    def create_reports_tab(self):
-        """Вкладка отчетов"""
-        self.tab_reports = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_reports, text="Отчеты")
-        
-        # Панель управления отчетами
-        control_frame = tk.Frame(self.tab_reports, bg=self.colors['bg'])
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        reports = [
-            ("Статистика по месяцам", self.generate_monthly_stats),
-            ("Топ агентов", self.generate_top_agents),
-            ("Популярные районы", self.generate_popular_districts),
-            ("Средние цены", self.generate_avg_prices),
-            ("Активные клиенты", self.generate_active_clients),
-            ("Финансовый отчет", self.generate_financial_report)
-        ]
-        
-        for text, command in reports:
-            ttk.Button(control_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
-        
-        # Поле для отчетов
-        self.report_text = scrolledtext.ScrolledText(self.tab_reports, wrap=tk.WORD, width=100, height=30)
-        self.report_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Кнопки экспорта
-        export_frame = tk.Frame(self.tab_reports, bg=self.colors['bg'])
-        export_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Button(export_frame, text="Сохранить отчет", 
-                  command=self.save_report).pack(side=tk.LEFT, padx=5)
-        ttk.Button(export_frame, text="Очистить", 
-                  command=lambda: self.report_text.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=5)
-    
-    # ========== МЕТОДЫ ЗАГРУЗКИ ДАННЫХ ==========
-    
-    def load_initial_data(self):
-        """Загрузка начальных данных"""
-        self.load_properties()
-        self.load_viewings('today')
-        self.load_clients()
-        self.load_agents()
-        self.load_deals()
-        self.update_status("Данные загружены")
-    
-    def load_properties(self):
-        """Загрузка объектов недвижимости"""
-        try:
-            self.tree_properties.delete(*self.tree_properties.get_children())
-            
-            cursor = self.db_connection.cursor()
-            
-            # Формирование запроса с фильтрами
-            query = """
-            SELECT p.property_id, p.address, p.district, p.property_type, 
-                   p.transaction_type, p.price, p.area, p.bedrooms, p.status,
-                   CONCAT(a.first_name, ' ', a.last_name) as agent_name
-            FROM properties p
-            LEFT JOIN agents a ON p.agent_id = a.agent_id
-            WHERE 1=1
-            """
-            
-            params = []
-            
-            # Применение фильтров
-            if self.filter_type.get() != 'Все':
-                query += " AND p.property_type = %s"
-                params.append(self.filter_type.get())
-            
-            if self.filter_status.get() != 'Все':
-                query += " AND p.status = %s"
-                params.append(self.filter_status.get())
-            
-            query += " ORDER BY p.property_id"
-            
-            cursor.execute(query, params)
-            properties = cursor.fetchall()
-            
-            for prop in properties:
-                # Форматирование цены
-                price = f"{prop[5]:,.0f} ₽" if prop[5] else "0 ₽"
-                
-                self.tree_properties.insert('', tk.END, values=(
-                    prop[0], prop[1], prop[2] or '', prop[3], prop[4],
-                    price, f"{prop[6]} м²", prop[7] or '', prop[8], prop[9] or ''
-                ))
-            
-            cursor.close()
-            self.update_status(f"Загружено объектов: {len(properties)}")
-            
-        except Exception as e:
-            self.update_status(f"Ошибка загрузки: {str(e)}", error=True)
-            messagebox.showerror("Ошибка", f"Не удалось загрузить объекты:\n{str(e)}")
-    
-    def load_viewings(self, period='today'):
-        """Загрузка просмотров"""
-        try:
-            self.tree_viewings.delete(*self.tree_viewings.get_children())
-            
-            cursor = self.db_connection.cursor()
-            
-            query = """
-            SELECT v.viewing_id, v.viewing_date, v.viewing_time,
-                   p.address, 
-                   CONCAT(c.first_name, ' ', c.last_name) as client_name,
-                   CONCAT(a.first_name, ' ', a.last_name) as agent_name,
-                   v.status, v.rating
-            FROM voz v
-            JOIN properties p ON v.property_id = p.property_id
-            JOIN clients c ON v.client_id = c.client_id
-            LEFT JOIN agents a ON v.agent_id = a.agent_id
-            WHERE 1=1
-            """
-            
-            params = []
-            
-            # Фильтр по статусу
-            status_filter = self.filter_viewing_status.get()
-            if status_filter != 'Все':
-                query += " AND v.status = %s"
-                params.append(status_filter)
-            
-            # Фильтр по периоду
-            if period == 'today':
-                query += " AND v.viewing_date = CURRENT_DATE"
-            elif period == 'week':
-                query += " AND v.viewing_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'"
-            
-            query += " ORDER BY v.viewing_date, v.viewing_time"
-            
-            cursor.execute(query, params)
-            viewings = cursor.fetchall()
-            
-            for viewing in viewings:
-                rating = viewing[7] if viewing[7] else '—'
-                self.tree_viewings.insert('', tk.END, values=(
-                    viewing[0], viewing[1], viewing[2],
-                    viewing[3][:50] + '...' if len(viewing[3]) > 50 else viewing[3],
-                    viewing[4], viewing[5] or '—', viewing[6], rating
-                ))
-            
-            cursor.close()
-            self.update_status(f"Загружено просмотров: {len(viewings)}")
-            
-        except Exception as e:
-            self.update_status(f"Ошибка загрузки: {str(e)}", error=True)
-    
-    def load_clients(self):
-        """Загрузка клиентов"""
-        try:
-            self.tree_clients.delete(*self.tree_clients.get_children())
-            
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT client_id, last_name, first_name, phone, email, 
-                       TO_CHAR(created_at, 'DD.MM.YYYY')
-                FROM clients 
-                ORDER BY last_name, first_name
-            """)
-            clients = cursor.fetchall()
-            
-            for client in clients:
-                self.tree_clients.insert('', tk.END, values=client)
-            
-            cursor.close()
-            self.update_status(f"Загружено клиентов: {len(clients)}")
-            
-        except Exception as e:
-            self.update_status(f"Ошибка загрузки: {str(e)}", error=True)
-    
-    def search_clients(self, event=None):
-        """Поиск клиентов"""
-        search_term = self.search_client.get()
-        
-        try:
-            self.tree_clients.delete(*self.tree_clients.get_children())
-            
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT client_id, last_name, first_name, phone, email, 
-                       TO_CHAR(created_at, 'DD.MM.YYYY')
-                FROM clients 
-                WHERE last_name ILIKE %s OR first_name ILIKE %s OR phone ILIKE %s
-                ORDER BY last_name, first_name
-            """, (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
-            
-            clients = cursor.fetchall()
-            
-            for client in clients:
-                self.tree_clients.insert('', tk.END, values=client)
-            
-            cursor.close()
-            
-        except Exception as e:
-            self.update_status(f"Ошибка поиска: {str(e)}", error=True)
-    
-    def load_agents(self):
-        """Загрузка агентов"""
-        try:
-            self.tree_agents.delete(*self.tree_agents.get_children())
-            
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT agent_id, last_name, first_name, phone, email, 
-                       license_number, commission_rate, 
-                       CASE WHEN is_active THEN 'Да' ELSE 'Нет' END
-                FROM agents 
-                ORDER BY last_name, first_name
-            """)
-            agents = cursor.fetchall()
-            
-            for agent in agents:
-                self.tree_agents.insert('', tk.END, values=agent)
-            
-            cursor.close()
-            self.update_status(f"Загружено агентов: {len(agents)}")
-            
-        except Exception as e:
-            self.update_status(f"Ошибка загрузки: {str(e)}", error=True)
-    
-    def load_deals(self):
-        """Загрузка сделок"""
-        try:
-            self.tree_deals.delete(*self.tree_deals.get_children())
-            
-            cursor = self.db_connection.cursor()
-            
-            query = """
-            SELECT d.deal_id, d.deal_date, p.address,
-                   CONCAT(b.first_name, ' ', b.last_name) as buyer,
-                   CONCAT(s.first_name, ' ', s.last_name) as seller,
-                   CONCAT(a.first_name, ' ', a.last_name) as agent,
-                   d.final_price, d.commission, d.status
-            FROM deals d
-            JOIN properties p ON d.property_id = p.property_id
-            JOIN clients b ON d.buyer_client_id = b.client_id
-            JOIN clients s ON d.seller_client_id = s.client_id
-            JOIN agents a ON d.agent_id = a.agent_id
-            WHERE 1=1
-            """
-            
-            params = []
-            
-            # Фильтр по статусу
-            status_filter = self.filter_deal_status.get()
-            if status_filter != 'Все':
-                query += " AND d.status = %s"
-                params.append(status_filter)
-            
-            query += " ORDER BY d.deal_date DESC"
-            
-            cursor.execute(query, params)
-            deals = cursor.fetchall()
-            
-            for deal in deals:
-                self.tree_deals.insert('', tk.END, values=(
-                    deal[0], deal[1], deal[2][:40] + '...' if len(deal[2]) > 40 else deal[2],
-                    deal[3], deal[4], deal[5], 
-                    f"{deal[6]:,.0f} ₽", f"{deal[7]:,.0f} ₽", deal[8]
-                ))
-            
-            cursor.close()
-            self.update_status(f"Загружено сделок: {len(deals)}")
-            
-        except Exception as e:
-            self.update_status(f"Ошибка загрузки: {str(e)}", error=True)
-    
-    def show_deal_payments(self, event):
-        """Показать платежи по выбранной сделке"""
-        selection = self.tree_deals.selection()
-        if not selection:
-            return
-        
-        item = self.tree_deals.item(selection[0])
-        deal_id = item['values'][0]
-        
-        try:
-            self.tree_payments.delete(*self.tree_payments.get_children())
-            
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT payment_id, payment_date, amount, payment_type, 
-                       payment_method, status, notes
-                FROM payments 
-                WHERE deal_id = %s
-                ORDER BY payment_date
-            """, (deal_id,))
-            
-            payments = cursor.fetchall()
-            
-            for payment in payments:
-                notes = payment[6][:30] + '...' if payment[6] and len(payment[6]) > 30 else payment[6]
-                self.tree_payments.insert('', tk.END, values=(
-                    payment[0], payment[1], f"{payment[2]:,.0f} ₽", 
-                    payment[3], payment[4], payment[5], notes or ''
-                ))
-            
-            cursor.close()
-            
-        except Exception as e:
-            self.update_status(f"Ошибка загрузки платежей: {str(e)}", error=True)
-    
-    def show_agent_stats(self, event):
-        """Показать статистику агента"""
-        selection = self.tree_agents.selection()
-        if not selection:
-            return
-        
-        item = self.tree_agents.item(selection[0])
-        agent_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            
-            # Получаем статистику
-            cursor.execute("""
-                SELECT 
-                    COUNT(DISTINCT p.property_id) as total_properties,
-                    COUNT(DISTINCT v.viewing_id) as total_viewings,
-                    COUNT(DISTINCT d.deal_id) as total_deals,
-                    COALESCE(SUM(d.commission), 0) as total_commission,
-                    AVG(v.rating) as avg_rating
-                FROM agents a
-                LEFT JOIN properties p ON a.agent_id = p.agent_id
-                LEFT JOIN voz v ON a.agent_id = v.agent_id
-                LEFT JOIN deals d ON a.agent_id = d.agent_id
-                WHERE a.agent_id = %s
-                GROUP BY a.agent_id
-            """, (agent_id,))
-            
-            stats = cursor.fetchone()
-            
-            if stats:
-                self.agent_stats_text.delete(1.0, tk.END)
-                stats_text = f"""СТАТИСТИКА АГЕНТА:
-────────────────────
-Всего объектов: {stats[0]}
-Всего просмотров: {stats[1]}
-Всего сделок: {stats[2]}
-Общая комиссия: {stats[3]:,.0f} ₽
-Средняя оценка: {stats[4]:.1f if stats[4] else 'Н/Д'}/5
+        self.load_employees()
 
-АКТИВНЫЕ ОБЪЕКТЫ:
-────────────────────
-"""
-                
-                # Активные объекты
-                cursor.execute("""
-                    SELECT p.address, p.price, p.status
-                    FROM properties p
-                    WHERE p.agent_id = %s AND p.status IN ('available', 'reserved')
-                    ORDER BY p.status
-                """, (agent_id,))
-                
-                properties = cursor.fetchall()
-                
-                for prop in properties:
-                    stats_text += f"• {prop[0][:40]}...\n"
-                    stats_text += f"  Цена: {prop[1]:,.0f} ₽ | Статус: {prop[2]}\n\n"
-                
-                self.agent_stats_text.insert(1.0, stats_text)
-            
-            cursor.close()
-            
-        except Exception as e:
-            self.agent_stats_text.delete(1.0, tk.END)
-            
-    
-    # ========== ДИАЛОГОВЫЕ ОКНА ДЛЯ ДОБАВЛЕНИЯ ==========
-    
-    def add_property_dialog(self):
-        """Диалог добавления объекта"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Добавить объект недвижимости")
-        dialog.geometry("500x600")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Получаем список агентов и продавцов
-        cursor = self.db_connection.cursor()
-        cursor.execute("SELECT agent_id, first_name || ' ' || last_name FROM agents ORDER BY last_name")
-        agents = cursor.fetchall()
-        
-        cursor.execute("SELECT seller_id, first_name || ' ' || last_name FROM sellers ORDER BY last_name")
-        sellers = cursor.fetchall()
-        
-        cursor.close()
-        
-        # Поля формы
-        fields = [
-            ("Адрес:", tk.Entry(dialog, width=40)),
-            ("Город:", tk.Entry(dialog, width=40)),
-            ("Район:", ttk.Combobox(dialog, values=['Центральный', 'Эжвинский', 'Октябрьский', 'Краснозатонский', 'Другой'], width=37)),
-            ("Тип:", ttk.Combobox(dialog, values=['apartment', 'house', 'commercial', 'land'], width=37)),
-            ("Тип сделки:", ttk.Combobox(dialog, values=['sale', 'rent'], width=37)),
-            ("Цена (₽):", tk.Entry(dialog, width=40)),
-            ("Площадь (м²):", tk.Entry(dialog, width=40)),
-            ("Комнат:", tk.Entry(dialog, width=40)),
-            ("Санузлов:", tk.Entry(dialog, width=40)),
-            ("Продавец:", ttk.Combobox(dialog, values=[f"{s[0]} - {s[1]}" for s in sellers], width=37)),
-            ("Агент:", ttk.Combobox(dialog, values=[f"{a[0]} - {a[1]}" for a in agents], width=37)),
-            ("Статус:", ttk.Combobox(dialog, values=['available', 'reserved'], width=37))
-        ]
-        
-        # Описание
-        tk.Label(dialog, text="Описание:").grid(row=len(fields), column=0, sticky='nw', padx=10, pady=5)
-        description_text = scrolledtext.ScrolledText(dialog, width=50, height=5)
-        description_text.grid(row=len(fields), column=1, columnspan=2, padx=10, pady=5)
-        
-        # Размещение полей
-        for i, (label, widget) in enumerate(fields):
-            tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=5)
-            widget.grid(row=i, column=1, columnspan=2, padx=10, pady=5, sticky='ew')
-        
-        # Установка значений по умолчанию
-        fields[1][1].insert(0, "Сыктывкар")
-        fields[5][1].insert(0, "0")
-        fields[6][1].insert(0, "0")
-        fields[11][1].set('available')
-        
-        # Кнопки
-        button_frame = tk.Frame(dialog)
-        button_frame.grid(row=len(fields)+1, column=0, columnspan=3, pady=20)
-        
-        def save_property():
-            try:
-                # Получение значений
-                seller_id = int(fields[9][1].get().split(' - ')[0]) if fields[9][1].get() else None
-                agent_id = int(fields[10][1].get().split(' - ')[0]) if fields[10][1].get() else None
-                
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    INSERT INTO properties 
-                    (seller_id, agent_id, address, city, district, property_type, 
-                     transaction_type, price, area, bedrooms, bathrooms, 
-                     description, status, list_date)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE)
-                """, (
-                    seller_id, agent_id,
-                    fields[0][1].get(), fields[1][1].get(), fields[2][1].get(),
-                    fields[3][1].get(), fields[4][1].get(),
-                    float(fields[5][1].get() or 0),
-                    float(fields[6][1].get() or 0),
-                    int(fields[7][1].get() or 0) if fields[7][1].get() else None,
-                    int(fields[8][1].get() or 0) if fields[8][1].get() else None,
-                    description_text.get(1.0, tk.END).strip(),
-                    fields[11][1].get()
-                ))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Объект успешно добавлен!")
-                self.load_properties()
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось добавить объект:\n{str(e)}")
-        
-        ttk.Button(button_frame, text="Сохранить", command=save_property).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-    
-    def add_viewing_dialog(self):
-        """Диалог добавления просмотра"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Запланировать просмотр")
-        dialog.geometry("400x400")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Получаем данные
-        cursor = self.db_connection.cursor()
-        cursor.execute("SELECT property_id, address FROM properties WHERE status = 'available'")
-        properties = cursor.fetchall()
-        
-        cursor.execute("SELECT client_id, first_name || ' ' || last_name FROM clients ORDER BY last_name")
-        clients = cursor.fetchall()
-        
-        cursor.execute("SELECT agent_id, first_name || ' ' || last_name FROM agents WHERE is_active = TRUE")
-        agents = cursor.fetchall()
-        
-        cursor.close()
-        
-        # Поля формы
-        fields = [
-            ("Объект:", ttk.Combobox(dialog, values=[f"{p[0]} - {p[1][:50]}..." for p in properties], width=40)),
-            ("Клиент:", ttk.Combobox(dialog, values=[f"{c[0]} - {c[1]}" for c in clients], width=40)),
-            ("Агент:", ttk.Combobox(dialog, values=[f"{a[0]} - {a[1]}" for a in agents], width=40)),
-            ("Дата:", tk.Entry(dialog, width=40)),
-            ("Время:", ttk.Combobox(dialog, values=[
-                "09:00", "10:00", "11:00", "12:00", "13:00", 
-                "14:00", "15:00", "16:00", "17:00", "18:00"
-            ], width=37))
-        ]
-        
-        for i, (label, widget) in enumerate(fields):
-            tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=10)
-            widget.grid(row=i, column=1, padx=10, pady=10, sticky='ew')
-        
-        # Установка значений по умолчанию
-        fields[3][1].insert(0, date.today().strftime("%Y-%m-%d"))
-        fields[4][1].set("10:00")
-        
-        # Заметки
-        tk.Label(dialog, text="Заметки:").grid(row=5, column=0, sticky='nw', padx=10, pady=10)
-        notes_text = scrolledtext.ScrolledText(dialog, width=40, height=5)
-        notes_text.grid(row=5, column=1, padx=10, pady=10)
-        
-        # Кнопки
-        button_frame = tk.Frame(dialog)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
-        
-        def save_viewing():
-            try:
-                property_id = int(fields[0][1].get().split(' - ')[0])
-                client_id = int(fields[1][1].get().split(' - ')[0])
-                agent_id = int(fields[2][1].get().split(' - ')[0]) if fields[2][1].get() else None
-                
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    INSERT INTO voz 
-                    (property_id, client_id, agent_id, viewing_date, viewing_time, 
-                     status, agent_notes)
-                    VALUES (%s, %s, %s, %s, %s, 'scheduled', %s)
-                """, (
-                    property_id, client_id, agent_id,
-                    fields[3][1].get(), fields[4][1].get(),
-                    notes_text.get(1.0, tk.END).strip()
-                ))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Просмотр успешно запланирован!")
-                self.load_viewings('today')
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось запланировать просмотр:\n{str(e)}")
-        
-        ttk.Button(button_frame, text="Сохранить", command=save_viewing).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-    
-    def add_client_dialog(self):
-        """Диалог добавления клиента"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Добавить клиента")
-        dialog.geometry("400x300")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Поля формы
-        fields = [
-            ("Фамилия:", tk.Entry(dialog, width=30)),
-            ("Имя:", tk.Entry(dialog, width=30)),
-            ("Телефон:", tk.Entry(dialog, width=30)),
-            ("Email:", tk.Entry(dialog, width=30))
-        ]
-        
-        # Размещение полей
-        for i, (label, widget) in enumerate(fields):
-            tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=10)
-            widget.grid(row=i, column=1, padx=10, pady=10, sticky='ew')
-        
-        # Кнопки
-        button_frame = tk.Frame(dialog)
-        button_frame.grid(row=len(fields), column=0, columnspan=2, pady=20)
-        
-        def save_client():
-            try:
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    INSERT INTO clients (first_name, last_name, phone, email)
-                    VALUES (%s, %s, %s, %s)
-                """, (
-                    fields[1][1].get(),
-                    fields[0][1].get(),
-                    fields[2][1].get(),
-                    fields[3][1].get() or None
-                ))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Клиент успешно добавлен!")
-                self.load_clients()
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось добавить клиента:\n{str(e)}")
-        
-        ttk.Button(button_frame, text="Сохранить", command=save_client).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-    
-    def add_agent_dialog(self):
-        """Диалог добавления агента"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Добавить агента")
-        dialog.geometry("400x350")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Поля формы
-        fields = [
-            ("Фамилия:", tk.Entry(dialog, width=30)),
-            ("Имя:", tk.Entry(dialog, width=30)),
-            ("Телефон:", tk.Entry(dialog, width=30)),
-            ("Email:", tk.Entry(dialog, width=30)),
-            ("Лицензия:", tk.Entry(dialog, width=30)),
-            ("Комиссия %:", tk.Entry(dialog, width=30))
-        ]
-        
-        # Активность
-        tk.Label(dialog, text="Активен:").grid(row=len(fields), column=0, sticky='w', padx=10, pady=10)
-        is_active_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(dialog, variable=is_active_var).grid(row=len(fields), column=1, sticky='w', padx=10, pady=10)
-        
-        # Размещение полей
-        for i, (label, widget) in enumerate(fields):
-            tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=10)
-            widget.grid(row=i, column=1, padx=10, pady=10, sticky='ew')
-        
-        # Установка значений по умолчанию
-        fields[5][1].insert(0, "2.5")
-        
-        # Кнопки
-        button_frame = tk.Frame(dialog)
-        button_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=20)
-        
-        def save_agent():
-            try:
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    INSERT INTO agents 
-                    (first_name, last_name, phone, email, license_number, commission_rate, is_active, hire_date)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_DATE)
-                """, (
-                    fields[1][1].get(),
-                    fields[0][1].get(),
-                    fields[2][1].get(),
-                    fields[3][1].get(),
-                    fields[4][1].get() or None,
-                    float(fields[5][1].get() or 2.5),
-                    is_active_var.get()
-                ))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Агент успешно добавлен!")
-                self.load_agents()
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось добавить агента:\n{str(e)}")
-        
-        ttk.Button(button_frame, text="Сохранить", command=save_agent).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-    
-    # ========== ДИАЛОГ ДОБАВЛЕНИЯ СДЕЛКИ ==========
-    
-    def add_deal_dialog(self, property_id=None, client_id=None):
-        """Диалог добавления сделки"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Новая сделка")
-        dialog.geometry("650x550")  # Увеличим размер окна
-        dialog.transient(self.root)
-        dialog.grab_set()
-    
-        try:
-            cursor = self.db_connection.cursor()
-        
-            # Получаем данные для выпадающих списков
-            cursor.execute("""
-                SELECT p.property_id, p.address, p.price, p.transaction_type,
-                    CONCAT(s.first_name, ' ', s.last_name) as seller_name,
-                    s.seller_id, s.client_id as seller_client_id
-                FROM properties p
-                JOIN sellers s ON p.seller_id = s.seller_id
-                WHERE p.status IN ('available', 'reserved')
-            """)
-            properties = cursor.fetchall()
-        
-            cursor.execute("SELECT client_id, first_name || ' ' || last_name FROM clients ORDER BY last_name")
-            clients = cursor.fetchall()
-        
-            cursor.execute("SELECT agent_id, first_name || ' ' || last_name FROM agents WHERE is_active = TRUE")
-            agents = cursor.fetchall()
-        
-            cursor.close()
-        
-            # Переменные для хранения значений
-            self.deal_property_var = tk.StringVar()
-            self.deal_buyer_var = tk.StringVar()
-            self.deal_seller_client_var = tk.StringVar()  # Для выбора продавца-клиента
-            self.deal_agent_var = tk.StringVar()
-            self.deal_price_var = tk.StringVar()
-            self.deal_commission_var = tk.StringVar()
-        
-            # Словарь для хранения продавцов и их клиентов
-            self.sellers_dict = {}
-            for prop in properties:
-                self.sellers_dict[prop[0]] = {
-                    'seller_id': prop[4],
-                    'seller_name': prop[3],
-                    'seller_client_id': prop[5]
-                }
-        
-            # Функция обновления продавца при выборе объекта
-            def update_seller_info(event=None):
-                selected = self.deal_property_var.get()
-                if selected:
-                    try:
-                        # Извлекаем ID объекта
-                        prop_id = int(selected.split(' - ')[0])
-                    
-                        # Находим информацию о продавце
-                        seller_info = self.sellers_dict.get(prop_id)
-                        if seller_info:
-                            # Если у продавца есть связанный клиент
-                            if seller_info['seller_client_id']:
-                                # Находим этого клиента в списке
-                                for client in clients:
-                                    if client[0] == seller_info['seller_client_id']:
-                                        self.deal_seller_client_var.set(f"{client[0]} - {client[1]}")
-                                        break
-                                else:
-                                    # Если не нашли, предлагаем выбрать
-                                    self.deal_seller_client_var.set('')
-                                    messagebox.showinfo("Информация", 
-                                        f"Продавец: {seller_info['seller_name']}\n"
-                                        f"Выберите соответствующего клиента из списка")
-                            else:
-                                # Если нет связанного клиента
-                                self.deal_seller_client_var.set('')
-                                messagebox.showinfo("Информация", 
-                                    f"Продавец: {seller_info['seller_name']}\n"
-                                    f"У продавца нет связанного клиента. Выберите или создайте нового.")
-                        
-                            # Устанавливаем цену из объекта
-                            for prop in properties:
-                                if prop[0] == prop_id:
-                                    self.deal_price_var.set(str(prop[2]))
-                                
-                                    # Автоматически рассчитываем комиссию (3%)
-                                    try:
-                                        commission = float(prop[2]) * 0.03
-                                        self.deal_commission_var.set(f"{commission:,.0f}")
-                                    except:
-                                        self.deal_commission_var.set("0")
-                                    break
-                                
-                    except Exception as e:
-                        print(f"Ошибка обновления продавца: {e}")
-        
-            # Функция расчета комиссии при изменении цены
-            def calculate_commission(event=None):
-                try:
-                    price_str = self.deal_price_var.get().replace(' ', '').replace(',', '').replace('₽', '')
-                    price = float(price_str)
-                    commission = price * 0.03  # 3% по умолчанию
-                    self.deal_commission_var.set(f"{commission:,.0f}")
-                except:
-                    self.deal_commission_var.set("0")
-        
-            # Поля формы
-            tk.Label(dialog, text="Объект недвижимости *:").grid(row=0, column=0, sticky='w', padx=10, pady=10)
-            property_combo = ttk.Combobox(dialog, textvariable=self.deal_property_var, 
-                                        values=[f"{p[0]} - {p[1][:60]}... (Цена: {p[2]:,.0f} ₽)" for p in properties], 
-                                        width=50)
-            property_combo.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
-            property_combo.bind('<<ComboboxSelected>>', update_seller_info)
-        
-            tk.Label(dialog, text="Покупатель *:").grid(row=1, column=0, sticky='w', padx=10, pady=10)
-            buyer_combo = ttk.Combobox(dialog, textvariable=self.deal_buyer_var, 
-                                    values=[f"{c[0]} - {c[1]}" for c in clients], 
-                                    width=50)
-            buyer_combo.grid(row=1, column=1, padx=10, pady=10, sticky='ew')
-        
-            tk.Label(dialog, text="Продавец (клиент) *:").grid(row=2, column=0, sticky='w', padx=10, pady=10)
-            seller_client_combo = ttk.Combobox(dialog, textvariable=self.deal_seller_client_var, 
-                                            values=[f"{c[0]} - {c[1]}" for c in clients], 
-                                            width=50)
-            seller_client_combo.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
-        
-            # Кнопка для создания нового клиента-продавца
-            def create_new_seller_client():
-                # Диалог быстрого создания клиента
-                new_dialog = tk.Toplevel(dialog)
-                new_dialog.title("Быстрое создание клиента-продавца")
-                new_dialog.geometry("400x250")
-                new_dialog.transient(dialog)
-                new_dialog.grab_set()
-            
-                tk.Label(new_dialog, text="Фамилия:").grid(row=0, column=0, sticky='w', padx=10, pady=10)
-                last_name_var = tk.StringVar()
-                tk.Entry(new_dialog, textvariable=last_name_var, width=30).grid(row=0, column=1, padx=10, pady=10)
-            
-                tk.Label(new_dialog, text="Имя:").grid(row=1, column=0, sticky='w', padx=10, pady=10)
-                first_name_var = tk.StringVar()
-                tk.Entry(new_dialog, textvariable=first_name_var, width=30).grid(row=1, column=1, padx=10, pady=10)
-            
-                tk.Label(new_dialog, text="Телефон:").grid(row=2, column=0, sticky='w', padx=10, pady=10)
-                phone_var = tk.StringVar()
-                tk.Entry(new_dialog, textvariable=phone_var, width=30).grid(row=2, column=1, padx=10, pady=10)
-            
-                tk.Label(new_dialog, text="Email (опционально):").grid(row=3, column=0, sticky='w', padx=10, pady=10)
-                email_var = tk.StringVar()
-                tk.Entry(new_dialog, textvariable=email_var, width=30).grid(row=3, column=1, padx=10, pady=10)
-            
-                def save_new_client():
-                    try:
-                        if not all([last_name_var.get(), first_name_var.get(), phone_var.get()]):
-                            messagebox.showerror("Ошибка", "Заполните обязательные поля: Фамилия, Имя, Телефон")
-                            return
-                    
-                        cursor = self.db_connection.cursor()
-                        cursor.execute("""
-                            INSERT INTO clients (first_name, last_name, phone, email)
-                            VALUES (%s, %s, %s, %s)
-                            RETURNING client_id, first_name || ' ' || last_name as client_name
-                        """, (
-                            first_name_var.get(),
-                            last_name_var.get(),
-                            phone_var.get(),
-                            email_var.get() or None
-                        ))
-                    
-                        new_client = cursor.fetchone()
-                    
-                        # Если выбран объект, обновляем продавца
-                        if self.deal_property_var.get():
-                            prop_id = int(self.deal_property_var.get().split(' - ')[0])
-                            seller_info = self.sellers_dict.get(prop_id)
-                        
-                            if seller_info:
-                                # Обновляем связь продавца с клиентом
-                                cursor.execute("""
-                                    UPDATE sellers 
-                                    SET client_id = %s
-                                    WHERE seller_id = %s
-                                """, (new_client[0], seller_info['seller_id']))
-                    
-                        self.db_connection.commit()
-                        cursor.close()
-                    
-                        # Обновляем комбобокс
-                        seller_client_combo['values'] = list(seller_client_combo['values']) + [f"{new_client[0]} - {new_client[1]}"]
-                        seller_client_combo.set(f"{new_client[0]} - {new_client[1]}")
-                    
-                        messagebox.showinfo("Успех", "Клиент создан и связан с продавцом!")
-                        new_dialog.destroy()
-                    
-                    except Exception as e:
-                        messagebox.showerror("Ошибка", f"Не удалось создать клиента:\n{str(e)}")
-            
-                ttk.Button(new_dialog, text="Сохранить", command=save_new_client).grid(row=4, column=0, columnspan=2, pady=20)
-        
-            
-        
-            tk.Label(dialog, text="Агент *:").grid(row=4, column=0, sticky='w', padx=10, pady=10)
-            agent_combo = ttk.Combobox(dialog, textvariable=self.deal_agent_var, 
-                                    values=[f"{a[0]} - {a[1]}" for a in agents], 
-                                    width=50)
-            agent_combo.grid(row=4, column=1, padx=10, pady=10, sticky='ew')
-        
-            tk.Label(dialog, text="Тип сделки:").grid(row=5, column=0, sticky='w', padx=10, pady=10)
-            self.deal_type_var = tk.StringVar(value='sale')
-            ttk.Combobox(dialog, textvariable=self.deal_type_var, 
-                        values=['sale', 'rent'], width=15, state='readonly').grid(row=5, column=1, sticky='w', padx=10, pady=10)
-        
-            tk.Label(dialog, text="Финальная цена (₽) *:").grid(row=6, column=0, sticky='w', padx=10, pady=10)
-            price_entry = tk.Entry(dialog, textvariable=self.deal_price_var, width=30)
-            price_entry.grid(row=6, column=1, sticky='w', padx=10, pady=10)
-            price_entry.bind('<KeyRelease>', calculate_commission)
-        
-            tk.Label(dialog, text="Комиссия (₽) *:").grid(row=7, column=0, sticky='w', padx=10, pady=10)
-            commission_entry = tk.Entry(dialog, textvariable=self.deal_commission_var, width=30)
-            commission_entry.grid(row=7, column=1, sticky='w', padx=10, pady=10)
-        
-            tk.Label(dialog, text="Дата сделки:").grid(row=8, column=0, sticky='w', padx=10, pady=10)
-            self.deal_date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
-            tk.Entry(dialog, textvariable=self.deal_date_var, width=30).grid(row=8, column=1, sticky='w', padx=10, pady=10)
-        
-            tk.Label(dialog, text="Номер договора:").grid(row=9, column=0, sticky='w', padx=10, pady=10)
-            self.deal_contract_var = tk.StringVar()
-            tk.Entry(dialog, textvariable=self.deal_contract_var, width=30).grid(row=9, column=1, sticky='w', padx=10, pady=10)
-        
-            tk.Label(dialog, text="Статус:").grid(row=10, column=0, sticky='w', padx=10, pady=10)
-            self.deal_status_var = tk.StringVar(value='in_progress')
-            ttk.Combobox(dialog, textvariable=self.deal_status_var, 
-                        values=['in_progress', 'completed', 'cancelled'], width=15).grid(row=10, column=1, sticky='w', padx=10, pady=10)
-        
-            # Если переданы параметры, устанавливаем значения
-            if property_id:
-                for prop in properties:
-                    if prop[0] == property_id:
-                        property_combo.set(f"{prop[0]} - {prop[1][:60]}... (Цена: {prop[2]:,.0f} ₽)")
-                        update_seller_info()
-                        self.deal_type_var.set(prop[3])
-                        break
-        
-            if client_id:
-                for client in clients:
-                    if client[0] == client_id:
-                        buyer_combo.set(f"{client[0]} - {client[1]}")
-                        break
-        
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=11, column=0, columnspan=2, pady=20)
-        
-            def save_deal():
-                try:
-                    # Проверка обязательных полей
-                    if not all([self.deal_property_var.get(), self.deal_buyer_var.get(), 
-                            self.deal_seller_client_var.get(), self.deal_agent_var.get(),
-                            self.deal_price_var.get(), self.deal_commission_var.get()]):
-                        messagebox.showerror("Ошибка", "Заполните все обязательные поля (*)")
-                        return
-                
-                    # Извлекаем ID из строк
-                    property_id = int(self.deal_property_var.get().split(' - ')[0])
-                    buyer_id = int(self.deal_buyer_var.get().split(' - ')[0])
-                    seller_client_id = int(self.deal_seller_client_var.get().split(' - ')[0])
-                    agent_id = int(self.deal_agent_var.get().split(' - ')[0])
-                
-                    # Проверяем, что покупатель и продавец - разные люди
-                    if buyer_id == seller_client_id:
-                        messagebox.showerror("Ошибка", "Покупатель и продавец не могут быть одним и тем же человеком!")
-                        return
-                
-                    # Преобразуем цену и комиссию
-                    price_str = self.deal_price_var.get().replace(' ', '').replace(',', '').replace('₽', '')
-                    commission_str = self.deal_commission_var.get().replace(' ', '').replace(',', '').replace('₽', '')
-                
-                    price = float(price_str)
-                    commission = float(commission_str)
-                
-                    # Создаем сделку
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("""
-                        INSERT INTO deals 
-                        (property_id, buyer_client_id, seller_client_id, agent_id, 
-                        deal_date, final_price, commission, deal_type, 
-                        contract_number, status)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        property_id, buyer_id, seller_client_id, agent_id,
-                        self.deal_date_var.get() or date.today(),
-                        price, commission, self.deal_type_var.get(),
-                        self.deal_contract_var.get() or None,
-                        self.deal_status_var.get()
-                    ))
-                
-                    # Обновляем статус объекта
-                    new_status = 'sold' if self.deal_type_var.get() == 'sale' else 'rented'
-                    cursor.execute("""
-                        UPDATE properties 
-                        SET status = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE property_id = %s
-                    """, (new_status, property_id))
-                
-                    self.db_connection.commit()
-                    cursor.close()
-                
-                    messagebox.showinfo("Успех", "Сделка успешно добавлена!")
-                    self.load_deals()
-                    self.load_properties()
-                    dialog.destroy()
-                
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось создать сделку:\n{str(e)}")
-        
-            ttk.Button(button_frame, text="Сохранить", command=save_deal).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-        
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные:\n{str(e)}")
-            dialog.destroy()
-    # ========== ОСТАЛЬНЫЕ МЕТОДЫ ==========
-    
-    def view_property_details(self):
-        """Просмотр деталей объекта"""
-        selection = self.tree_properties.selection()
-        if not selection:
-            return
-        
-        item = self.tree_properties.item(selection[0])
-        property_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT p.*, 
-                       CONCAT(a.first_name, ' ', a.last_name) as agent_name,
-                       CONCAT(s.first_name, ' ', s.last_name) as seller_name
-                FROM properties p
-                LEFT JOIN agents a ON p.agent_id = a.agent_id
-                LEFT JOIN sellers s ON p.seller_id = s.seller_id
-                WHERE p.property_id = %s
-            """, (property_id,))
-            
-            prop = cursor.fetchone()
-            cursor.close()
-            
-            if prop:
-                details = f"""ДЕТАЛИ ОБЪЕКТА #{property_id}
-────────────────────
-Адрес: {prop[3]}
-Город: {prop[4]}
-Район: {prop[5]}
-Тип: {prop[6]}
-Сделка: {prop[7]}
-Цена: {prop[8]:,.0f} ₽
-Площадь: {prop[9]} м²
-Комнат: {prop[10] or '—'}
-Санузлов: {prop[11] or '—'}
-Статус: {prop[12]}
-Дата добавления: {prop[15].strftime('%d.%m.%Y') if prop[15] else '—'}
+        # Привязываем обработчик изменения размера окна
+        self.root.bind('<Configure>', self.on_window_resize)
 
-Агент: {prop[18] or '—'}
-Продавец: {prop[19] or '—'}
+    def calculate_font_size(self, window_width):
+        """Рассчитать размер шрифта в зависимости от ширины окна"""
+        if window_width >= 1600:
+            return 12
+        elif window_width >= 1200:
+            return 11
+        elif window_width >= 900:
+            return 10
+        else:
+            return 9
 
-Описание:
-{prop[13] or 'Нет описания'}
-"""
-                
-                messagebox.showinfo(f"Объект #{property_id}", details)
-                
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить детали:\n{str(e)}")
-    
-    def schedule_viewing_from_property(self):
-        """Запланировать просмотр для выбранного объекта"""
-        selection = self.tree_properties.selection()
-        if not selection:
-            return
-        
-        item = self.tree_properties.item(selection[0])
-        property_id = item['values'][0]
-        
-        # Открываем диалог добавления просмотра
-        self.add_viewing_dialog()
-    
-    def show_context_menu_properties(self, event):
-        """Показать контекстное меню для объектов"""
-        item = self.tree_properties.identify_row(event.y)
-        if item:
-            self.tree_properties.selection_set(item)
-            self.context_menu_properties.post(event.x_root, event.y_root)
-    
-    def show_context_menu_viewings(self, event):
-        """Показать контекстное меню для просмотров"""
-        item = self.tree_viewings.identify_row(event.y)
-        if item:
-            self.tree_viewings.selection_set(item)
-            self.context_menu_viewings.post(event.x_root, event.y_root)
-    
-    def show_context_menu_clients(self, event):
-        """Показать контекстное меню для клиентов"""
-        item = self.tree_clients.identify_row(event.y)
-        if item:
-            self.tree_clients.selection_set(item)
-            self.context_menu_clients.post(event.x_root, event.y_root)
-    
-    def show_context_menu_deals(self, event):
-        """Показать контекстное меню для сделок"""
-        item = self.tree_deals.identify_row(event.y)
-        if item:
-            self.tree_deals.selection_set(item)
-            self.context_menu_deals.post(event.x_root, event.y_root)
-    
-    def update_viewing_status(self, status):
-        """Обновить статус просмотра"""
-        selection = self.tree_viewings.selection()
-        if not selection:
-            return
-        
-        item = self.tree_viewings.item(selection[0])
-        viewing_id = item['values'][0]
-        
+    def calculate_padding(self, window_width):
+        """Рассчитать отступы в зависимости от ширины окна"""
+        if window_width >= 1600:
+            return 15
+        elif window_width >= 1200:
+            return 12
+        elif window_width >= 900:
+            return 10
+        else:
+            return 8
+
+    def calculate_button_width(self, window_width):
+        """Рассчитать ширину кнопок в зависимости от ширины окна"""
+        if window_width >= 1600:
+            return 25
+        elif window_width >= 1200:
+            return 22
+        elif window_width >= 900:
+            return 20
+        else:
+            return 18
+
+    def on_window_resize(self, event):
+        """Обработчик изменения размера окна"""
+        if event.widget == self.root:
+            # Обновляем размеры и перерисовываем интерфейс
+            self.update_ui_sizes()
+
+    def update_ui_sizes(self):
+        """Обновить размеры элементов интерфейса"""
+        window_width = self.root.winfo_width()
+
+        # Обновляем размеры
+        self.font_size = self.calculate_font_size(window_width)
+        self.padding = self.calculate_padding(window_width)
+        self.button_width = self.calculate_button_width(window_width)
+
+        # Обновляем стили
+        self.update_styles()
+
+        # Обновляем размеры виджетов
+        self.update_widget_sizes()
+
+    def update_styles(self):
+        """Обновить стили элементов"""
+        style = ttk.Style()
+
+        # Настраиваем стили для кнопок
+        style.configure('TButton',
+                        font=('Arial', self.font_size),
+                        padding=self.padding // 2)
+
+        style.configure('TLabel',
+                        font=('Arial', self.font_size))
+
+        style.configure('Treeview.Heading',
+                        font=('Arial', self.font_size, 'bold'))
+
+        style.configure('Treeview',
+                        font=('Arial', self.font_size - 1 if self.font_size > 9 else 9))
+
+        style.configure('Title.TLabel',
+                        font=('Arial', self.font_size + 2, 'bold'))
+
+    def update_widget_sizes(self):
+        """Обновить размеры виджетов"""
+        # Обновляем размеры кнопок
+        for widget in self.buttons_frame.winfo_children():
+            if isinstance(widget, ttk.Button):
+                widget.configure(width=self.button_width)
+
+        # Обновляем размеры колонок в Treeview
+        if hasattr(self, 'tree'):
+            self.adjust_treeview_columns()
+
+    def connect_db(self):
+        """Подключение к базе данных"""
         try:
-            cursor = self.db_connection.cursor()
-            
-            if status == 'completed':
-                # Запрашиваем отзыв и оценку
-                dialog = tk.Toplevel(self.root)
-                dialog.title("Завершить просмотр")
-                dialog.geometry("300x200")
-                dialog.transient(self.root)
-                dialog.grab_set()
-                
-                tk.Label(dialog, text="Оценка (1-5):").pack(pady=5)
-                rating_var = tk.StringVar()
-                ttk.Combobox(dialog, textvariable=rating_var, values=['1', '2', '3', '4', '5'], width=10).pack(pady=5)
-                
-                tk.Label(dialog, text="Отзыв клиента:").pack(pady=5)
-                feedback_text = scrolledtext.ScrolledText(dialog, width=40, height=4)
-                feedback_text.pack(pady=5)
-                
-                def save_feedback():
-                    try:
-                        rating = int(rating_var.get()) if rating_var.get() else None
-                        feedback = feedback_text.get(1.0, tk.END).strip()
-                        
-                        cursor.execute("""
-                            UPDATE voz 
-                            SET status = 'completed', rating = %s, client_feedback = %s,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE viewing_id = %s
-                        """, (rating, feedback, viewing_id))
-                        
-                        self.db_connection.commit()
-                        dialog.destroy()
-                        self.load_viewings('all')
-                        messagebox.showinfo("Успех", "Просмотр отмечен как завершенный")
-                        
-                    except Exception as e:
-                        messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{str(e)}")
-                
-                ttk.Button(dialog, text="Сохранить", command=save_feedback).pack(pady=10)
-                
-            else:
-                cursor.execute("""
-                    UPDATE voz 
-                    SET status = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE viewing_id = %s
-                """, (status, viewing_id))
-                
-                self.db_connection.commit()
-                self.load_viewings('all')
-                
-                status_text = {
-                    'cancelled': 'отменен',
-                    'no_show': 'отмечен как неявка'
-                }.get(status, 'обновлен')
-                
-                messagebox.showinfo("Успех", f"Просмотр {status_text}")
-            
-            cursor.close()
-            
+            self.conn = psycopg2.connect(**self.conn_params)
+            print("Подключение к БД успешно")
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось обновить статус:\n{str(e)}")
-    
-    def add_viewing_feedback(self):
-        """Добавить отзыв к просмотру"""
-        self.update_viewing_status('completed')
-    
-    # ========== МЕТОДЫ УДАЛЕНИЯ ==========
-    
-    def delete_property(self):
-        """Удаление объекта"""
-        if messagebox.askyesno("Подтверждение", "Удалить выбранный объект?\nВсе связанные просмотры также будут удалены."):
-            selection = self.tree_properties.selection()
-            if selection:
-                property_id = self.tree_properties.item(selection[0])['values'][0]
-                
-                try:
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("DELETE FROM properties WHERE property_id = %s", (property_id,))
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    self.load_properties()
-                    messagebox.showinfo("Успех", "Объект удален")
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось удалить объект:\n{str(e)}")
-    
-    def delete_viewing(self):
-        """Удаление просмотра"""
-        if messagebox.askyesno("Подтверждение", "Удалить выбранный просмотр?"):
-            selection = self.tree_viewings.selection()
-            if selection:
-                viewing_id = self.tree_viewings.item(selection[0])['values'][0]
-                
-                try:
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("DELETE FROM voz WHERE viewing_id = %s", (viewing_id,))
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    self.load_viewings('all')
-                    messagebox.showinfo("Успех", "Просмотр удален")
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось удалить просмотр:\n{str(e)}")
-    
-    def delete_client(self):
-        """Удаление клиента"""
-        if messagebox.askyesno("Подтверждение", "Удалить выбранного клиента?\nБудут также удалены все его просмотры."):
-            selection = self.tree_clients.selection()
-            if selection:
-                client_id = self.tree_clients.item(selection[0])['values'][0]
-                
-                try:
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("DELETE FROM clients WHERE client_id = %s", (client_id,))
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    self.load_clients()
-                    messagebox.showinfo("Успех", "Клиент удален")
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось удалить клиента:\n{str(e)}")
-    
-    def delete_deal(self):
-        """Удаление сделки"""
-        selection = self.tree_deals.selection()
-        if not selection:
-            return
-        
-        if messagebox.askyesno("Подтверждение", "Удалить выбранную сделку?\nВсе связанные платежи также будут удалены."):
-            deal_id = self.tree_deals.item(selection[0])['values'][0]
-            
-            try:
-                cursor = self.db_connection.cursor()
-                
-                # Получаем property_id для обновления статуса
-                cursor.execute("SELECT property_id FROM deals WHERE deal_id = %s", (deal_id,))
-                property_data = cursor.fetchone()
-                
-                # Удаляем сделку (платежи удалятся каскадно)
-                cursor.execute("DELETE FROM deals WHERE deal_id = %s", (deal_id,))
-                
-                # Обновляем статус объекта на available
-                if property_data:
-                    cursor.execute("""
-                        UPDATE properties 
-                        SET status = 'available', updated_at = CURRENT_TIMESTAMP
-                        WHERE property_id = %s
-                    """, (property_data[0],))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                self.load_deals()
-                self.load_properties()
-                messagebox.showinfo("Успех", "Сделка удалена")
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось удалить сделку:\n{str(e)}")
-    
-    # ========== МЕТОДЫ РЕДАКТИРОВАНИЯ ==========
-    
-    def edit_property_dialog(self):
-        """Диалог редактирования объекта"""
-        selection = self.tree_properties.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите объект для редактирования")
-            return
-        
-        item = self.tree_properties.item(selection[0])
-        property_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT * FROM properties WHERE property_id = %s
-            """, (property_id,))
-            
-            property_data = cursor.fetchone()
-            
-            # Получаем списки для выпадающих списков
-            cursor.execute("SELECT agent_id, first_name || ' ' || last_name FROM agents ORDER BY last_name")
-            agents = cursor.fetchall()
-            
-            cursor.execute("SELECT seller_id, first_name || ' ' || last_name FROM sellers ORDER BY last_name")
-            sellers = cursor.fetchall()
-            
-            cursor.close()
-            
-            if not property_data:
-                messagebox.showerror("Ошибка", "Объект не найден")
-                return
-            
-            dialog = tk.Toplevel(self.root)
-            dialog.title(f"Редактирование объекта #{property_id}")
-            dialog.geometry("500x600")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            
-            # Поля формы
-            fields = [
-                ("Адрес:", tk.Entry(dialog, width=40)),
-                ("Город:", tk.Entry(dialog, width=40)),
-                ("Район:", ttk.Combobox(dialog, values=['Центральный', 'Эжвинский', 'Октябрьский', 'Краснозатонский', 'Другой'], width=37)),
-                ("Тип:", ttk.Combobox(dialog, values=['apartment', 'house', 'commercial', 'land'], width=37)),
-                ("Тип сделки:", ttk.Combobox(dialog, values=['sale', 'rent'], width=37)),
-                ("Цена (₽):", tk.Entry(dialog, width=40)),
-                ("Площадь (м²):", tk.Entry(dialog, width=40)),
-                ("Комнат:", tk.Entry(dialog, width=40)),
-                ("Санузлов:", tk.Entry(dialog, width=40)),
-                ("Статус:", ttk.Combobox(dialog, values=['available', 'reserved', 'sold', 'rented', 'withdrawn'], width=37))
-            ]
-            
-            # Описание
-            tk.Label(dialog, text="Описание:").grid(row=len(fields), column=0, sticky='nw', padx=10, pady=5)
-            description_text = scrolledtext.ScrolledText(dialog, width=50, height=5)
-            description_text.grid(row=len(fields), column=1, columnspan=2, padx=10, pady=5)
-            
-            # Заполняем поля данными
-            fields[0][1].insert(0, property_data[3])  # address
-            fields[1][1].insert(0, property_data[4])  # city
-            fields[2][1].set(property_data[5] or '')  # district
-            fields[3][1].set(property_data[6])  # property_type
-            fields[4][1].set(property_data[7])  # transaction_type
-            fields[5][1].insert(0, str(property_data[8]))  # price
-            fields[6][1].insert(0, str(property_data[9]))  # area
-            fields[7][1].insert(0, str(property_data[10] or ''))  # bedrooms
-            fields[8][1].insert(0, str(property_data[11] or ''))  # bathrooms
-            fields[9][1].set(property_data[12])  # status
-            description_text.insert(1.0, property_data[13] or '')  # description
-            
-            # Размещение полей
-            for i, (label, widget) in enumerate(fields):
-                tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=5)
-                widget.grid(row=i, column=1, columnspan=2, padx=10, pady=5, sticky='ew')
-            
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=len(fields)+1, column=0, columnspan=3, pady=20)
-            
-            def save_changes():
-                try:
-                    cursor = self.db_connection.cursor()
-                    
-                    cursor.execute("""
-                        UPDATE properties SET
-                            address = %s,
-                            city = %s,
-                            district = %s,
-                            property_type = %s,
-                            transaction_type = %s,
-                            price = %s,
-                            area = %s,
-                            bedrooms = %s,
-                            bathrooms = %s,
-                            status = %s,
-                            description = %s,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE property_id = %s
-                    """, (
-                        fields[0][1].get(),
-                        fields[1][1].get(),
-                        fields[2][1].get(),
-                        fields[3][1].get(),
-                        fields[4][1].get(),
-                        float(fields[5][1].get() or 0),
-                        float(fields[6][1].get() or 0),
-                        int(fields[7][1].get() or 0) if fields[7][1].get() else None,
-                        int(fields[8][1].get() or 0) if fields[8][1].get() else None,
-                        fields[9][1].get(),
-                        description_text.get(1.0, tk.END).strip(),
-                        property_id
-                    ))
-                    
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    messagebox.showinfo("Успех", "Изменения сохранены!")
-                    self.load_properties()
-                    dialog.destroy()
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось сохранить изменения:\n{str(e)}")
-            
-            ttk.Button(button_frame, text="Сохранить", command=save_changes).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные объекта:\n{str(e)}")
-    
-    def edit_client_dialog(self):
-        """Диалог редактирования клиента"""
-        selection = self.tree_clients.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите клиента для редактирования")
-            return
-        
-        item = self.tree_clients.item(selection[0])
-        client_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT * FROM clients WHERE client_id = %s
-            """, (client_id,))
-            
-            client_data = cursor.fetchone()
-            cursor.close()
-            
-            if not client_data:
-                messagebox.showerror("Ошибка", "Клиент не найден")
-                return
-            
-            dialog = tk.Toplevel(self.root)
-            dialog.title(f"Редактирование клиента #{client_id}")
-            dialog.geometry("400x300")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            
-            # Поля формы
-            fields = [
-                ("Фамилия:", tk.Entry(dialog, width=30)),
-                ("Имя:", tk.Entry(dialog, width=30)),
-                ("Телефон:", tk.Entry(dialog, width=30)),
-                ("Email:", tk.Entry(dialog, width=30))
-            ]
-            
-            # Заполняем поля данными
-            fields[0][1].insert(0, client_data[2])  # last_name
-            fields[1][1].insert(0, client_data[1])  # first_name
-            fields[2][1].insert(0, client_data[3])  # phone
-            fields[3][1].insert(0, client_data[4] or '')  # email
-            
-            # Размещение полей
-            for i, (label, widget) in enumerate(fields):
-                tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=10)
-                widget.grid(row=i, column=1, padx=10, pady=10, sticky='ew')
-            
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=len(fields), column=0, columnspan=2, pady=20)
-            
-            def save_changes():
-                try:
-                    cursor = self.db_connection.cursor()
-                    
-                    cursor.execute("""
-                        UPDATE clients SET
-                            first_name = %s,
-                            last_name = %s,
-                            phone = %s,
-                            email = %s,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE client_id = %s
-                    """, (
-                        fields[1][1].get(),
-                        fields[0][1].get(),
-                        fields[2][1].get(),
-                        fields[3][1].get() or None,
-                        client_id
-                    ))
-                    
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    messagebox.showinfo("Успех", "Изменения сохранены!")
-                    self.load_clients()
-                    dialog.destroy()
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось сохранить изменения:\n{str(e)}")
-            
-            ttk.Button(button_frame, text="Сохранить", command=save_changes).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные клиента:\n{str(e)}")
-    
-    def edit_agent_dialog(self):
-        """Диалог редактирования агента"""
-        selection = self.tree_agents.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите агента для редактирования")
-            return
-        
-        item = self.tree_agents.item(selection[0])
-        agent_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT * FROM agents WHERE agent_id = %s
-            """, (agent_id,))
-            
-            agent_data = cursor.fetchone()
-            cursor.close()
-            
-            if not agent_data:
-                messagebox.showerror("Ошибка", "Агент не найден")
-                return
-            
-            dialog = tk.Toplevel(self.root)
-            dialog.title(f"Редактирование агента #{agent_id}")
-            dialog.geometry("400x400")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            
-            # Поля формы
-            fields = [
-                ("Фамилия:", tk.Entry(dialog, width=30)),
-                ("Имя:", tk.Entry(dialog, width=30)),
-                ("Телефон:", tk.Entry(dialog, width=30)),
-                ("Email:", tk.Entry(dialog, width=30)),
-                ("Лицензия:", tk.Entry(dialog, width=30)),
-                ("Комиссия %:", tk.Entry(dialog, width=30))
-            ]
-            
-            # Активность
-            tk.Label(dialog, text="Активен:").grid(row=len(fields), column=0, sticky='w', padx=10, pady=10)
-            is_active_var = tk.BooleanVar(value=agent_data[8])
-            ttk.Checkbutton(dialog, variable=is_active_var).grid(row=len(fields), column=1, sticky='w', padx=10, pady=10)
-            
-            # Заполняем поля данными
-            fields[0][1].insert(0, agent_data[2])  # last_name
-            fields[1][1].insert(0, agent_data[1])  # first_name
-            fields[2][1].insert(0, agent_data[3])  # phone
-            fields[3][1].insert(0, agent_data[4])  # email
-            fields[4][1].insert(0, agent_data[5] or '')  # license_number
-            fields[5][1].insert(0, str(agent_data[7]))  # commission_rate
-            
-            # Размещение полей
-            for i, (label, widget) in enumerate(fields):
-                tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=10)
-                widget.grid(row=i, column=1, padx=10, pady=10, sticky='ew')
-            
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=20)
-            
-            def save_changes():
-                try:
-                    cursor = self.db_connection.cursor()
-                    
-                    cursor.execute("""
-                        UPDATE agents SET
-                            first_name = %s,
-                            last_name = %s,
-                            phone = %s,
-                            email = %s,
-                            license_number = %s,
-                            commission_rate = %s,
-                            is_active = %s
-                        WHERE agent_id = %s
-                    """, (
-                        fields[1][1].get(),
-                        fields[0][1].get(),
-                        fields[2][1].get(),
-                        fields[3][1].get(),
-                        fields[4][1].get() or None,
-                        float(fields[5][1].get() or 2.5),
-                        is_active_var.get(),
-                        agent_id
-                    ))
-                    
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    messagebox.showinfo("Успех", "Изменения сохранены!")
-                    self.load_agents()
-                    dialog.destroy()
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось сохранить изменения:\n{str(e)}")
-            
-            ttk.Button(button_frame, text="Сохранить", command=save_changes).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные агента:\n{str(e)}")
-    
-    def edit_viewing_dialog(self):
-        """Диалог редактирования просмотра"""
-        selection = self.tree_viewings.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите просмотр для редактирования")
-            return
-        
-        item = self.tree_viewings.item(selection[0])
-        viewing_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT * FROM voz WHERE viewing_id = %s
-            """, (viewing_id,))
-            
-            viewing_data = cursor.fetchone()
-            
-            # Получаем списки для выпадающих списков
-            cursor.execute("SELECT property_id, address FROM properties")
-            properties = cursor.fetchall()
-            
-            cursor.execute("SELECT client_id, first_name || ' ' || last_name FROM clients ORDER BY last_name")
-            clients = cursor.fetchall()
-            
-            cursor.execute("SELECT agent_id, first_name || ' ' || last_name FROM agents WHERE is_active = TRUE")
-            agents = cursor.fetchall()
-            
-            cursor.close()
-            
-            if not viewing_data:
-                messagebox.showerror("Ошибка", "Просмотр не найден")
-                return
-            
-            dialog = tk.Toplevel(self.root)
-            dialog.title(f"Редактирование просмотра #{viewing_id}")
-            dialog.geometry("400x400")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            
-            # Поля формы
-            fields = [
-                ("Объект:", ttk.Combobox(dialog, values=[f"{p[0]} - {p[1][:50]}..." for p in properties], width=40)),
-                ("Клиент:", ttk.Combobox(dialog, values=[f"{c[0]} - {c[1]}" for c in clients], width=40)),
-                ("Агент:", ttk.Combobox(dialog, values=[f"{a[0]} - {a[1]}" for a in agents], width=40)),
-                ("Дата:", tk.Entry(dialog, width=40)),
-                ("Время:", ttk.Combobox(dialog, values=[
-                    "09:00", "10:00", "11:00", "12:00", "13:00", 
-                    "14:00", "15:00", "16:00", "17:00", "18:00"
-                ], width=37)),
-                ("Статус:", ttk.Combobox(dialog, values=['scheduled', 'completed', 'cancelled', 'no_show'], width=37))
-            ]
-            
-            # Находим текущие значения для выпадающих списков
-            property_text = ""
-            for prop in properties:
-                if prop[0] == viewing_data[1]:
-                    property_text = f"{prop[0]} - {prop[1][:50]}..."
-                    break
-            
-            client_text = ""
-            for client in clients:
-                if client[0] == viewing_data[2]:
-                    client_text = f"{client[0]} - {client[1]}"
-                    break
-            
-            agent_text = ""
-            if viewing_data[3]:
-                for agent in agents:
-                    if agent[0] == viewing_data[3]:
-                        agent_text = f"{agent[0]} - {agent[1]}"
-                        break
-            
-            # Устанавливаем значения
-            fields[0][1].set(property_text)
-            fields[1][1].set(client_text)
-            fields[2][1].set(agent_text)
-            fields[3][1].insert(0, str(viewing_data[4]))
-            fields[4][1].set(str(viewing_data[5]))
-            fields[5][1].set(viewing_data[6])
-            
-            # Рейтинг и отзыв
-            tk.Label(dialog, text="Рейтинг (1-5):").grid(row=6, column=0, sticky='w', padx=10, pady=10)
-            rating_var = tk.StringVar(value=str(viewing_data[9] or ''))
-            ttk.Combobox(dialog, textvariable=rating_var, values=['1', '2', '3', '4', '5'], width=10).grid(row=6, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Отзыв клиента:").grid(row=7, column=0, sticky='nw', padx=10, pady=10)
-            feedback_text = scrolledtext.ScrolledText(dialog, width=40, height=4)
-            feedback_text.grid(row=7, column=1, padx=10, pady=10)
-            feedback_text.insert(1.0, viewing_data[7] or '')
-            
-            # Размещение полей
-            for i, (label, widget) in enumerate(fields):
-                tk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=10)
-                widget.grid(row=i, column=1, padx=10, pady=10, sticky='ew')
-            
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=8, column=0, columnspan=2, pady=20)
-            
-            def save_changes():
-                try:
-                    property_id = int(fields[0][1].get().split(' - ')[0])
-                    client_id = int(fields[1][1].get().split(' - ')[0])
-                    agent_id = int(fields[2][1].get().split(' - ')[0]) if fields[2][1].get() else None
-                    rating = int(rating_var.get()) if rating_var.get() else None
-                    
-                    cursor = self.db_connection.cursor()
-                    
-                    cursor.execute("""
-                        UPDATE voz SET
-                            property_id = %s,
-                            client_id = %s,
-                            agent_id = %s,
-                            viewing_date = %s,
-                            viewing_time = %s,
-                            status = %s,
-                            client_feedback = %s,
-                            rating = %s,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE viewing_id = %s
-                    """, (
-                        property_id,
-                        client_id,
-                        agent_id,
-                        fields[3][1].get(),
-                        fields[4][1].get(),
-                        fields[5][1].get(),
-                        feedback_text.get(1.0, tk.END).strip(),
-                        rating,
-                        viewing_id
-                    ))
-                    
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    messagebox.showinfo("Успех", "Изменения сохранены!")
-                    self.load_viewings('all')
-                    dialog.destroy()
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось сохранить изменения:\n{str(e)}")
-            
-            ttk.Button(button_frame, text="Сохранить", command=save_changes).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные просмотра:\n{str(e)}")
-    
-    def edit_deal_dialog(self):
-        """Диалог редактирования сделки"""
-        selection = self.tree_deals.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите сделку для редактирования")
-            return
-        
-        item = self.tree_deals.item(selection[0])
-        deal_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT d.*, p.address,
-                       CONCAT(b.first_name, ' ', b.last_name) as buyer_name,
-                       CONCAT(s.first_name, ' ', s.last_name) as seller_name,
-                       CONCAT(a.first_name, ' ', a.last_name) as agent_name
-                FROM deals d
-                JOIN properties p ON d.property_id = p.property_id
-                JOIN clients b ON d.buyer_client_id = b.client_id
-                JOIN clients s ON d.seller_client_id = s.client_id
-                JOIN agents a ON d.agent_id = a.agent_id
-                WHERE d.deal_id = %s
-            """, (deal_id,))
-            
-            deal_data = cursor.fetchone()
-            
-            cursor.execute("SELECT agent_id, first_name || ' ' || last_name FROM agents WHERE is_active = TRUE")
-            agents = cursor.fetchall()
-            
-            cursor.close()
-            
-            if not deal_data:
-                messagebox.showerror("Ошибка", "Сделка не найден")
-                return
-            
-            dialog = tk.Toplevel(self.root)
-            dialog.title(f"Редактирование сделки #{deal_id}")
-            dialog.geometry("500x400")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            
-            # Информация о сделке (только для чтения)
-            tk.Label(dialog, text="Объект:").grid(row=0, column=0, sticky='w', padx=10, pady=10)
-            tk.Label(dialog, text=deal_data[11][:60] + "...").grid(row=0, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Покупатель:").grid(row=1, column=0, sticky='w', padx=10, pady=10)
-            tk.Label(dialog, text=deal_data[12]).grid(row=1, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Продавец:").grid(row=2, column=0, sticky='w', padx=10, pady=10)
-            tk.Label(dialog, text=deal_data[13]).grid(row=2, column=1, sticky='w', padx=10, pady=10)
-            
-            # Поля для редактирования
-            tk.Label(dialog, text="Агент:").grid(row=3, column=0, sticky='w', padx=10, pady=10)
-            agent_var = tk.StringVar(value=f"{deal_data[5]} - {deal_data[14]}")
-            agent_combo = ttk.Combobox(dialog, textvariable=agent_var, 
-                                      values=[f"{a[0]} - {a[1]}" for a in agents], 
-                                      width=40)
-            agent_combo.grid(row=3, column=1, padx=10, pady=10, sticky='ew')
-            
-            tk.Label(dialog, text="Финальная цена (₽):").grid(row=4, column=0, sticky='w', padx=10, pady=10)
-            price_var = tk.StringVar(value=str(deal_data[7]))
-            tk.Entry(dialog, textvariable=price_var, width=30).grid(row=4, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Комиссия (₽):").grid(row=5, column=0, sticky='w', padx=10, pady=10)
-            commission_var = tk.StringVar(value=str(deal_data[8]))
-            tk.Entry(dialog, textvariable=commission_var, width=30).grid(row=5, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Тип сделки:").grid(row=6, column=0, sticky='w', padx=10, pady=10)
-            type_var = tk.StringVar(value=deal_data[9])
-            ttk.Combobox(dialog, textvariable=type_var, 
-                        values=['sale', 'rent'], width=15).grid(row=6, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Номер договора:").grid(row=7, column=0, sticky='w', padx=10, pady=10)
-            contract_var = tk.StringVar(value=deal_data[10] or '')
-            tk.Entry(dialog, textvariable=contract_var, width=30).grid(row=7, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Статус:").grid(row=8, column=0, sticky='w', padx=10, pady=10)
-            status_var = tk.StringVar(value=deal_data[11])
-            ttk.Combobox(dialog, textvariable=status_var, 
-                        values=['in_progress', 'completed', 'cancelled'], width=15).grid(row=8, column=1, sticky='w', padx=10, pady=10)
-            
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=9, column=0, columnspan=2, pady=20)
-            
-            def save_changes():
-                try:
-                    agent_id = int(agent_var.get().split(' - ')[0])
-                    
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("""
-                        UPDATE deals SET
-                            agent_id = %s,
-                            final_price = %s,
-                            commission = %s,
-                            deal_type = %s,
-                            contract_number = %s,
-                            status = %s
-                        WHERE deal_id = %s
-                    """, (
-                        agent_id,
-                        float(price_var.get()),
-                        float(commission_var.get()),
-                        type_var.get(),
-                        contract_var.get() or None,
-                        status_var.get(),
-                        deal_id
-                    ))
-                    
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    messagebox.showinfo("Успех", "Изменения сохранены!")
-                    self.load_deals()
-                    dialog.destroy()
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось сохранить изменения:\n{str(e)}")
-            
-            ttk.Button(button_frame, text="Сохранить", command=save_changes).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные сделки:\n{str(e)}")
-    
-    # ========== ДИАЛОГ ДЛЯ ПЛАТЕЖЕЙ ==========
-    
-    def add_payment_dialog(self):
-        """Диалог добавления платежа"""
-        selection = self.tree_deals.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите сделку для добавления платежа")
-            return
-        
-        item = self.tree_deals.item(selection[0])
-        deal_id = item['values'][0]
-        
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f"Добавить платеж к сделке #{deal_id}")
-        dialog.geometry("400x350")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Поля формы
-        tk.Label(dialog, text="Сумма (₽) *:").grid(row=0, column=0, sticky='w', padx=10, pady=10)
-        amount_var = tk.StringVar()
-        tk.Entry(dialog, textvariable=amount_var, width=30).grid(row=0, column=1, sticky='w', padx=10, pady=10)
-        
-        tk.Label(dialog, text="Дата платежа:").grid(row=1, column=0, sticky='w', padx=10, pady=10)
-        date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
-        tk.Entry(dialog, textvariable=date_var, width=30).grid(row=1, column=1, sticky='w', padx=10, pady=10)
-        
-        tk.Label(dialog, text="Тип платежа:").grid(row=2, column=0, sticky='w', padx=10, pady=10)
-        type_var = tk.StringVar(value='deposit')
-        ttk.Combobox(dialog, textvariable=type_var, 
-                    values=['deposit', 'installment', 'final', 'commission'], width=15).grid(row=2, column=1, sticky='w', padx=10, pady=10)
-        
-        tk.Label(dialog, text="Метод оплаты:").grid(row=3, column=0, sticky='w', padx=10, pady=10)
-        method_var = tk.StringVar(value='bank_transfer')
-        ttk.Combobox(dialog, textvariable=method_var, 
-                    values=['cash', 'bank_transfer', 'card', 'check'], width=15).grid(row=3, column=1, sticky='w', padx=10, pady=10)
-        
-        tk.Label(dialog, text="Статус:").grid(row=4, column=0, sticky='w', padx=10, pady=10)
-        status_var = tk.StringVar(value='pending')
-        ttk.Combobox(dialog, textvariable=status_var, 
-                    values=['pending', 'completed', 'failed'], width=15).grid(row=4, column=1, sticky='w', padx=10, pady=10)
-        
-        tk.Label(dialog, text="Примечания:").grid(row=5, column=0, sticky='nw', padx=10, pady=10)
-        notes_text = scrolledtext.ScrolledText(dialog, width=30, height=4)
-        notes_text.grid(row=5, column=1, padx=10, pady=10)
-        
-        # Кнопки
-        button_frame = tk.Frame(dialog)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
-        
-        def save_payment():
-            try:
-                if not amount_var.get():
-                    messagebox.showerror("Ошибка", "Введите сумму платежа")
-                    return
-                
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    INSERT INTO payments 
-                    (deal_id, amount, payment_date, payment_type, 
-                     payment_method, status, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    deal_id,
-                    float(amount_var.get()),
-                    date_var.get(),
-                    type_var.get(),
-                    method_var.get(),
-                    status_var.get(),
-                    notes_text.get(1.0, tk.END).strip()
-                ))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Платеж добавлен!")
-                self.show_deal_payments(None)  # Обновляем таблицу платежей
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось добавить платеж:\n{str(e)}")
-        
-        ttk.Button(button_frame, text="Сохранить", command=save_payment).pack(side=tk.LEFT, padx=10)
-        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-    
-    def edit_payment_dialog(self):
-        """Диалог редактирования платежа"""
-        selection = self.tree_payments.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите платеж для редактирования")
-            return
-        
-        item = self.tree_payments.item(selection[0])
-        payment_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT * FROM payments WHERE payment_id = %s
-            """, (payment_id,))
-            
-            payment_data = cursor.fetchone()
-            cursor.close()
-            
-            if not payment_data:
-                messagebox.showerror("Ошибка", "Платеж не найден")
-                return
-            
-            dialog = tk.Toplevel(self.root)
-            dialog.title(f"Редактирование платежа #{payment_id}")
-            dialog.geometry("400x350")
-            dialog.transient(self.root)
-            dialog.grab_set()
-            
-            # Поля формы
-            tk.Label(dialog, text="Сумма (₽):").grid(row=0, column=0, sticky='w', padx=10, pady=10)
-            amount_var = tk.StringVar(value=str(payment_data[2]))
-            tk.Entry(dialog, textvariable=amount_var, width=30).grid(row=0, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Дата платежа:").grid(row=1, column=0, sticky='w', padx=10, pady=10)
-            date_var = tk.StringVar(value=str(payment_data[3]))
-            tk.Entry(dialog, textvariable=date_var, width=30).grid(row=1, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Тип платежа:").grid(row=2, column=0, sticky='w', padx=10, pady=10)
-            type_var = tk.StringVar(value=payment_data[4])
-            ttk.Combobox(dialog, textvariable=type_var, 
-                        values=['deposit', 'installment', 'final', 'commission'], width=15).grid(row=2, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Метод оплаты:").grid(row=3, column=0, sticky='w', padx=10, pady=10)
-            method_var = tk.StringVar(value=payment_data[5])
-            ttk.Combobox(dialog, textvariable=method_var, 
-                        values=['cash', 'bank_transfer', 'card', 'check'], width=15).grid(row=3, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Статус:").grid(row=4, column=0, sticky='w', padx=10, pady=10)
-            status_var = tk.StringVar(value=payment_data[6])
-            ttk.Combobox(dialog, textvariable=status_var, 
-                        values=['pending', 'completed', 'failed'], width=15).grid(row=4, column=1, sticky='w', padx=10, pady=10)
-            
-            tk.Label(dialog, text="Примечания:").grid(row=5, column=0, sticky='nw', padx=10, pady=10)
-            notes_text = scrolledtext.ScrolledText(dialog, width=30, height=4)
-            notes_text.grid(row=5, column=1, padx=10, pady=10)
-            notes_text.insert(1.0, payment_data[7] or '')
-            
-            # Кнопки
-            button_frame = tk.Frame(dialog)
-            button_frame.grid(row=6, column=0, columnspan=2, pady=20)
-            
-            def save_changes():
-                try:
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("""
-                        UPDATE payments SET
-                            amount = %s,
-                            payment_date = %s,
-                            payment_type = %s,
-                            payment_method = %s,
-                            status = %s,
-                            notes = %s
-                        WHERE payment_id = %s
-                    """, (
-                        float(amount_var.get()),
-                        date_var.get(),
-                        type_var.get(),
-                        method_var.get(),
-                        status_var.get(),
-                        notes_text.get(1.0, tk.END).strip(),
-                        payment_id
-                    ))
-                    
-                    self.db_connection.commit()
-                    cursor.close()
-                    
-                    messagebox.showinfo("Успех", "Изменения сохранены!")
-                    
-                    # Обновляем таблицу платежей
-                    deal_selection = self.tree_deals.selection()
-                    if deal_selection:
-                        self.show_deal_payments(None)
-                    
-                    dialog.destroy()
-                    
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось сохранить изменения:\n{str(e)}")
-            
-            ttk.Button(button_frame, text="Сохранить", command=save_changes).pack(side=tk.LEFT, padx=10)
-            ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные платежа:\n{str(e)}")
-    
-    def delete_payment(self):
-        """Удаление платежа"""
-        selection = self.tree_payments.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите платеж для удаления")
-            return
-        
-        if messagebox.askyesno("Подтверждение", "Удалить выбранный платеж?"):
-            payment_id = self.tree_payments.item(selection[0])['values'][0]
-            
-            try:
-                cursor = self.db_connection.cursor()
-                cursor.execute("DELETE FROM payments WHERE payment_id = %s", (payment_id,))
-                self.db_connection.commit()
-                cursor.close()
-                
-                # Обновляем таблицу платежей
-                deal_selection = self.tree_deals.selection()
-                if deal_selection:
-                    self.show_deal_payments(None)
-                
-                messagebox.showinfo("Успех", "Платеж удален")
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось удалить платеж:\n{str(e)}")
-    
-    # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
-    
-    def create_deal_from_property(self):
-        """Создать сделку из объекта"""
-        selection = self.tree_properties.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите объект для создания сделки")
-            return
-        
-        item = self.tree_properties.item(selection[0])
-        property_id = item['values'][0]
-        
-        self.add_deal_dialog(property_id=property_id)
-    
-    def create_deal_from_viewing(self):
-        """Создать сделку из просмотра"""
-        selection = self.tree_viewings.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите просмотр для создания сделки")
-            return
-        
-        item = self.tree_viewings.item(selection[0])
-        viewing_id = item['values'][0]
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT property_id, client_id FROM voz WHERE viewing_id = %s
-            """, (viewing_id,))
-            
-            viewing_data = cursor.fetchone()
-            cursor.close()
-            
-            if viewing_data:
-                self.add_deal_dialog(property_id=viewing_data[0], client_id=viewing_data[1])
-            else:
-                messagebox.showerror("Ошибка", "Не удалось получить данные просмотра")
-                
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить данные:\n{str(e)}")
-    
-    def change_property_status(self):
-        """Изменить статус объекта"""
-        selection = self.tree_properties.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите объект")
-            return
-        
-        item = self.tree_properties.item(selection[0])
-        property_id = item['values'][0]
-        current_status = item['values'][8]
-        
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Изменить статус объекта")
-        dialog.geometry("300x150")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        tk.Label(dialog, text=f"Объект #{property_id}").pack(pady=10)
-        tk.Label(dialog, text=f"Текущий статус: {current_status}").pack(pady=5)
-        
-        tk.Label(dialog, text="Новый статус:").pack(pady=5)
-        status_var = tk.StringVar(value=current_status)
-        status_combo = ttk.Combobox(dialog, textvariable=status_var, 
-                                   values=['available', 'reserved', 'sold', 'rented', 'withdrawn'])
-        status_combo.pack(pady=5)
-        
-        def save_status():
-            try:
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    UPDATE properties 
-                    SET status = %s, updated_at = CURRENT_TIMESTAMP
-                    WHERE property_id = %s
-                """, (status_var.get(), property_id))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Статус изменен")
-                self.load_properties()
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось изменить статус:\n{str(e)}")
-        
-        ttk.Button(dialog, text="Сохранить", command=save_status).pack(pady=10)
-    
-    def change_deal_status(self):
-        """Изменить статус сделки"""
-        selection = self.tree_deals.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите сделку")
-            return
-        
-        item = self.tree_deals.item(selection[0])
-        deal_id = item['values'][0]
-        current_status = item['values'][8]
-        
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Изменить статус сделки")
-        dialog.geometry("300x150")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        tk.Label(dialog, text=f"Сделка #{deal_id}").pack(pady=10)
-        tk.Label(dialog, text=f"Текущий статус: {current_status}").pack(pady=5)
-        
-        tk.Label(dialog, text="Новый статус:").pack(pady=5)
-        status_var = tk.StringVar(value=current_status)
-        status_combo = ttk.Combobox(dialog, textvariable=status_var, 
-                                   values=['in_progress', 'completed', 'cancelled'])
-        status_combo.pack(pady=5)
-        
-        def save_status():
-            try:
-                cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    UPDATE deals 
-                    SET status = %s
-                    WHERE deal_id = %s
-                """, (status_var.get(), deal_id))
-                
-                self.db_connection.commit()
-                cursor.close()
-                
-                messagebox.showinfo("Успех", "Статус изменен")
-                self.load_deals()
-                dialog.destroy()
-                
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось изменить статус:\n{str(e)}")
-        
-        ttk.Button(dialog, text="Сохранить", command=save_status).pack(pady=10)
-    
-    def show_client_viewings(self):
-        """Показать историю просмотров клиента"""
-        selection = self.tree_clients.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите клиента")
-            return
-        
-        item = self.tree_clients.item(selection[0])
-        client_id = item['values'][0]
-        client_name = f"{item['values'][2]} {item['values'][1]}"
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT v.viewing_date, v.viewing_time, p.address, 
-                       v.status, v.rating, v.client_feedback
-                FROM voz v
-                JOIN properties p ON v.property_id = p.property_id
-                WHERE v.client_id = %s
-                ORDER BY v.viewing_date DESC
-            """, (client_id,))
-            
-            viewings = cursor.fetchall()
-            cursor.close()
-            
-            if viewings:
-                history = f"ИСТОРИЯ ПРОСМОТРОВ: {client_name}\n"
-                history += "=" * 50 + "\n\n"
-                
-                for viewing in viewings:
-                    rating = viewing[4] if viewing[4] else '—'
-                    history += f"Дата: {viewing[0]} {viewing[1]}\n"
-                    history += f"Объект: {viewing[2][:60]}...\n"
-                    history += f"Статус: {viewing[3]} | Оценка: {rating}/5\n"
-                    
-                    if viewing[5]:
-                        history += f"Отзыв: {viewing[5][:100]}...\n"
-                    
-                    history += "-" * 50 + "\n"
-                
-                # Показать в отдельном окне
-                text_window = tk.Toplevel(self.root)
-                text_window.title(f"История просмотров: {client_name}")
-                text_window.geometry("600x400")
-                
-                text_widget = scrolledtext.ScrolledText(text_window, wrap=tk.WORD, width=80, height=25)
-                text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-                text_widget.insert(1.0, history)
-                text_widget.config(state=tk.DISABLED)
-                
-            else:
-                messagebox.showinfo("История", f"У клиента {client_name} нет истории просмотров")
-                
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить историю:\n{str(e)}")
-    
-    def show_client_deals(self):
-        """Показать историю сделок клиента"""
-        selection = self.tree_clients.selection()
-        if not selection:
-            messagebox.showwarning("Внимание", "Выберите клиента")
-            return
-        
-        item = self.tree_clients.item(selection[0])
-        client_id = item['values'][0]
-        client_name = f"{item['values'][2]} {item['values'][1]}"
-        
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT d.deal_id, d.deal_date, p.address, 
-                       d.final_price, d.commission, d.status,
-                       CASE 
-                           WHEN d.buyer_client_id = %s THEN 'Покупатель'
-                           WHEN d.seller_client_id = %s THEN 'Продавец'
-                       END as role
-                FROM deals d
-                JOIN properties p ON d.property_id = p.property_id
-                WHERE d.buyer_client_id = %s OR d.seller_client_id = %s
-                ORDER BY d.deal_date DESC
-            """, (client_id, client_id, client_id, client_id))
-            
-            deals = cursor.fetchall()
-            cursor.close()
-            
-            if deals:
-                history = f"ИСТОРИЯ СДЕЛОК: {client_name}\n"
-                history += "=" * 60 + "\n\n"
-                
-                for deal in deals:
-                    history += f"Сделка #{deal[0]} ({deal[6]})\n"
-                    history += f"Дата: {deal[1]}\n"
-                    history += f"Объект: {deal[2][:60]}...\n"
-                    history += f"Сумма: {deal[3]:,.0f} ₽ | Комиссия: {deal[4]:,.0f} ₽\n"
-                    history += f"Статус: {deal[5]}\n"
-                    history += "-" * 40 + "\n"
-                
-                # Показать в отдельном окне
-                text_window = tk.Toplevel(self.root)
-                text_window.title(f"История сделок: {client_name}")
-                text_window.geometry("600x400")
-                
-                text_widget = scrolledtext.ScrolledText(text_window, wrap=tk.WORD, width=80, height=25)
-                text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-                text_widget.insert(1.0, history)
-                text_widget.config(state=tk.DISABLED)
-                
-            else:
-                messagebox.showinfo("История", f"У клиента {client_name} нет истории сделок")
-                
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить историю:\n{str(e)}")
-    
-    # ========== ОТЧЕТЫ ==========
-    
-    def generate_monthly_stats(self):
-        """Генерация месячной статистики"""
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT 
-                    TO_CHAR(deal_date, 'YYYY-MM') as month,
-                    COUNT(*) as deals_count,
-                    SUM(final_price) as total_sales,
-                    SUM(commission) as total_commission
-                FROM deals 
-                WHERE status = 'completed'
-                GROUP BY TO_CHAR(deal_date, 'YYYY-MM')
-                ORDER BY month DESC
-                LIMIT 12
-            """)
-            
-            stats = cursor.fetchall()
-            cursor.close()
-            
-            report = "МЕСЯЧНАЯ СТАТИСТИКА ПРОДАЖ\n"
-            report += "=" * 60 + "\n\n"
-            
-            for stat in stats:
-                report += f"Месяц: {stat[0]}\n"
-                report += f"  Сделок: {stat[1]}\n"
-                report += f"  Общая сумма: {stat[2]:,.0f} ₽\n"
-                report += f"  Комиссия: {stat[3]:,.0f} ₽\n"
-                report += "-" * 40 + "\n"
-            
-            self.show_report(report)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сгенерировать отчет:\n{str(e)}")
-    
-    def generate_top_agents(self):
-        """Генерация отчета по топ агентам"""
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT 
-                    CONCAT(a.first_name, ' ', a.last_name) as agent_name,
-                    COUNT(DISTINCT d.deal_id) as deals_count,
-                    COALESCE(SUM(d.commission), 0) as total_commission,
-                    AVG(v.rating) as avg_rating
-                FROM agents a
-                LEFT JOIN deals d ON a.agent_id = d.agent_id AND d.status = 'completed'
-                LEFT JOIN voz v ON a.agent_id = v.agent_id AND v.status = 'completed'
-                WHERE a.is_active = TRUE
-                GROUP BY a.agent_id, a.first_name, a.last_name
-                ORDER BY total_commission DESC
-                LIMIT 10
-            """)
-            
-            agents = cursor.fetchall()
-            cursor.close()
-            
-            report = "ТОП АГЕНТОВ ПО КОМИССИИ\n"
-            report += "=" * 70 + "\n\n"
-            
-            for i, agent in enumerate(agents, 1):
-                rating = f"{agent[3]:.1f}" if agent[3] else "Н/Д"
-                report += f"{i}. {agent[0]}\n"
-                report += f"   Сделок: {agent[1]} | Комиссия: {agent[2]:,.0f} ₽ | Рейтинг: {rating}/5\n\n"
-            
-            self.show_report(report)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сгенерировать отчет:\n{str(e)}")
-    
-    def generate_popular_districts(self):
-        """Генерация отчета по популярным районам"""
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT 
-                    p.district,
-                    COUNT(*) as properties_count,
-                    AVG(p.price) as avg_price,
-                    COUNT(v.viewing_id) as viewings_count
-                FROM properties p
-                LEFT JOIN voz v ON p.property_id = v.property_id
-                WHERE p.district IS NOT NULL
-                GROUP BY p.district
-                ORDER BY viewings_count DESC
-            """)
-            
-            districts = cursor.fetchall()
-            cursor.close()
-            
-            report = "ПОПУЛЯРНОСТЬ РАЙОНОВ\n"
-            report += "=" * 70 + "\n\n"
-            
-            for district in districts:
-                report += f"Район: {district[0] or 'Не указан'}\n"
-                report += f"  Объектов: {district[1]}\n"
-                report += f"  Средняя цена: {district[2]:,.0f} ₽\n"
-                report += f"  Просмотров: {district[3]}\n"
-                report += "-" * 40 + "\n"
-            
-            self.show_report(report)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сгенерировать отчет:\n{str(e)}")
-    
-    def generate_avg_prices(self):
-        """Генерация отчета по средним ценам"""
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT 
-                    property_type,
-                    transaction_type,
-                    COUNT(*) as count,
-                    AVG(price) as avg_price,
-                    MIN(price) as min_price,
-                    MAX(price) as max_price
-                FROM properties
-                WHERE status IN ('available', 'reserved')
-                GROUP BY property_type, transaction_type
-                ORDER BY property_type, transaction_type
-            """)
-            
-            prices = cursor.fetchall()
-            cursor.close()
-            
-            report = "СРЕДНИЕ ЦЕНЫ ПО ТИПАМ НЕДВИЖИМОСТИ\n"
-            report += "=" * 70 + "\n\n"
-            
-            for price in prices:
-                type_name = {
-                    'apartment': 'Квартира',
-                    'house': 'Дом',
-                    'commercial': 'Коммерческая',
-                    'land': 'Участок'
-                }.get(price[0], price[0])
-                
-                deal_type = 'Продажа' if price[1] == 'sale' else 'Аренда'
-                
-                report += f"{type_name} ({deal_type}):\n"
-                report += f"  Количество: {price[2]}\n"
-                report += f"  Средняя: {price[3]:,.0f} ₽\n"
-                report += f"  Минимальная: {price[4]:,.0f} ₽\n"
-                report += f"  Максимальная: {price[5]:,.0f} ₽\n"
-                report += "-" * 40 + "\n"
-            
-            self.show_report(report)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сгенерировать отчет:\n{str(e)}")
-    
-    def generate_active_clients(self):
-        """Генерация отчета по активным клиентам"""
-        try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT 
-                    CONCAT(c.first_name, ' ', c.last_name) as client_name,
-                    c.phone,
-                    COUNT(DISTINCT v.viewing_id) as viewings_count,
-                    COUNT(DISTINCT d.deal_id) as deals_count,
-                    MAX(v.viewing_date) as last_viewing
-                FROM clients c
-                LEFT JOIN voz v ON c.client_id = v.client_id
-                LEFT JOIN deals d ON c.client_id = d.buyer_client_id
-                GROUP BY c.client_id, c.first_name, c.last_name, c.phone
-                HAVING COUNT(DISTINCT v.viewing_id) > 0
-                ORDER BY viewings_count DESC
-                LIMIT 20
-            """)
-            
-            clients = cursor.fetchall()
-            cursor.close()
-            
-            report = "САМЫЕ АКТИВНЫЕ КЛИЕНТЫ\n"
-            report += "=" * 70 + "\n\n"
-            
-            for i, client in enumerate(clients, 1):
-                last_viewing = client[4].strftime('%d.%m.%Y') if client[4] else 'Нет'
-                report += f"{i}. {client[0]}\n"
-                report += f"   Телефон: {client[1]}\n"
-                report += f"   Просмотров: {client[2]} | Сделок: {client[3]} | Последний просмотр: {last_viewing}\n\n"
-            
-            self.show_report(report)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сгенерировать отчет:\n{str(e)}")
-    
-    def generate_financial_report(self):
-        """Генерация финансового отчета"""
-        try:
-            cursor = self.db_connection.cursor()
-            
-            # Общая статистика
-            cursor.execute("""
-                SELECT 
-                    COUNT(*) as total_deals,
-                    SUM(final_price) as total_sales,
-                    SUM(commission) as total_commission,
-                    AVG(commission) as avg_commission
-                FROM deals 
-                WHERE status = 'completed'
-            """)
-            total_stats = cursor.fetchone()
-            
-            # Статистика по месяцам
-            cursor.execute("""
-                SELECT 
-                    TO_CHAR(deal_date, 'YYYY-MM') as month,
-                    COUNT(*) as deals_count,
-                    SUM(final_price) as total_sales,
-                    SUM(commission) as total_commission
-                FROM deals 
-                WHERE status = 'completed'
-                GROUP BY TO_CHAR(deal_date, 'YYYY-MM')
-                ORDER BY month DESC
-                LIMIT 6
-            """)
-            monthly_stats = cursor.fetchall()
-            
-            # Топ агентов
-            cursor.execute("""
-                SELECT 
-                    CONCAT(a.first_name, ' ', a.last_name) as agent_name,
-                    COUNT(*) as deals_count,
-                    SUM(d.commission) as total_commission
-                FROM deals d
-                JOIN agents a ON d.agent_id = a.agent_id
-                WHERE d.status = 'completed'
-                GROUP BY a.agent_id, a.first_name, a.last_name
-                ORDER BY total_commission DESC
-                LIMIT 5
-            """)
-            top_agents = cursor.fetchall()
-            
-            cursor.close()
-            
-            report = "ФИНАНСОВЫЙ ОТЧЕТ\n"
-            report += "=" * 70 + "\n\n"
-            
-            report += "ОБЩАЯ СТАТИСТИКА:\n"
-            report += "-" * 40 + "\n"
-            report += f"Всего завершенных сделок: {total_stats[0] or 0}\n"
-            report += f"Общая сумма продаж: {total_stats[1] or 0:,.0f} ₽\n"
-            report += f"Общая комиссия: {total_stats[2] or 0:,.0f} ₽\n"
-            report += f"Средняя комиссия: {total_stats[3] or 0:,.0f} ₽\n\n"
-            
-            report += "СТАТИСТИКА ПО МЕСЯЦАМ (последние 6 месяцев):\n"
-            report += "-" * 40 + "\n"
-            for stat in monthly_stats:
-                report += f"{stat[0]}: {stat[1]} сделок, {stat[2]:,.0f} ₽, комиссия: {stat[3]:,.0f} ₽\n"
-            report += "\n"
-            
-            report += "ТОП АГЕНТОВ ПО КОМИССИИ:\n"
-            report += "-" * 40 + "\n"
-            for i, agent in enumerate(top_agents, 1):
-                report += f"{i}. {agent[0]}: {agent[1]} сделок, комиссия: {agent[2]:,.0f} ₽\n"
-            
-            self.show_report(report)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сгенерировать отчет:\n{str(e)}")
-    
-    def show_report(self, content):
-        """Показать отчет в текстовом поле"""
-        self.report_text.delete(1.0, tk.END)
-        self.report_text.insert(1.0, content)
-        self.update_status("Отчет сгенерирован")
-    
-    def save_report(self):
-        """Сохранить отчет в файл"""
-        content = self.report_text.get(1.0, tk.END)
-        if not content.strip():
-            messagebox.showwarning("Предупреждение", "Нет данных для сохранения")
-            return
-        
-        from tkinter import filedialog
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Текстовые файлы", "*.txt"), ("Все файлы", "*.*")]
-        )
-        
-        if filename:
-            try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                messagebox.showinfo("Успех", f"Отчет сохранен в:\n{filename}")
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{str(e)}")
-    
-    def update_status(self, message, error=False):
-        """Обновление статус бара"""
-        color = self.colors['warning'] if error else 'black'
-        self.status_bar.config(text=message, fg=color)
-        self.root.after(5000, lambda: self.status_bar.config(text="Готово", fg='black'))
-    
-    def on_closing(self):
-        """Обработка закрытия приложения"""
-        if messagebox.askokcancel("Выход", "Закрыть приложение?"):
-            if hasattr(self, 'db_connection'):
-                self.db_connection.close()
+            messagebox.showerror("Ошибка", f"Не удалось подключиться к БД:\n{str(e)}")
             self.root.destroy()
 
+    def execute_query(self, query, params=None, fetch=False):
+        """Выполнение SQL запроса"""
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(query, params)
+                if fetch:
+                    return cur.fetchall()
+                else:
+                    self.conn.commit()
+                    return cur.rowcount
+        except Exception as e:
+            messagebox.showerror("Ошибка запроса", str(e))
+            return None
+
+    def create_widgets(self):
+        """Создание адаптивных виджетов"""
+        # Основной контейнер
+        self.main_container = ttk.Frame(self.root)
+        self.main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Настраиваем веса для адаптивности
+        self.main_container.columnconfigure(1, weight=1)
+        self.main_container.rowconfigure(1, weight=1)
+
+        # Заголовок
+        self.title_label = ttk.Label(
+            self.main_container,
+            text="📊 Управление базой данных риэлторского агентства",
+            style='Title.TLabel'
+        )
+        self.title_label.grid(row=0, column=0, columnspan=2, pady=(0, self.padding))
+
+        # Фрейм для кнопок навигации
+        self.buttons_frame = ttk.Frame(self.main_container)
+        self.buttons_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=(0, self.padding))
+
+        # Список кнопок навигации
+        self.nav_buttons = [
+            ("👥 Сотрудники", self.show_employees),
+            ("👤 Клиенты", self.show_clients),
+            ("🏠 Объекты", self.show_properties),
+            ("💰 Сделки", self.show_deals),
+            ("👁️ Просмотры", self.show_viewings),
+            ("🔧 Услуги", self.show_services),
+            ("📈 Отчеты", self.show_reports),
+        ]
+
+        for i, (text, command) in enumerate(self.nav_buttons):
+            btn = ttk.Button(
+                self.buttons_frame,
+                text=text,
+                command=command,
+                width=self.button_width
+            )
+            btn.pack(pady=5, fill=tk.X)
+
+        # Фрейм для отображения данных
+        self.data_container = ttk.Frame(self.main_container)
+        self.data_container.grid(row=1, column=1, sticky=tk.NSEW)
+
+        # Настраиваем веса внутри контейнера данных
+        self.data_container.columnconfigure(0, weight=1)
+        self.data_container.rowconfigure(0, weight=1)
+
+        # Treeview для отображения таблиц
+        self.tree_frame = ttk.Frame(self.data_container)
+        self.tree_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.tree_frame.columnconfigure(0, weight=1)
+        self.tree_frame.rowconfigure(0, weight=1)
+
+        # Создаем Treeview с полосой прокрутки
+        self.create_treeview()
+
+        # Панель управления
+        self.control_frame = ttk.Frame(self.main_container)
+        self.control_frame.grid(row=2, column=0, columnspan=2, pady=(self.padding, 0), sticky=tk.EW)
+
+        # Кнопки управления
+        control_buttons = [
+            ("➕ Добавить", self.add_record),
+            ("✏️ Редактировать", self.edit_record),  # НОВАЯ КНОПКА
+            ("🗑️ Удалить", self.delete_record),
+            ("🔄 Обновить", self.refresh_data),
+            ("🔍 Поиск", self.search_dialog),
+        ]
+
+        for i, (text, command) in enumerate(control_buttons):
+            btn = ttk.Button(
+                self.control_frame,
+                text=text,
+                command=command,
+                width=self.button_width - 5
+            )
+            btn.pack(side=tk.LEFT, padx=5)
+        # Статус бар
+        self.status_frame = ttk.Frame(self.main_container)
+        self.status_frame.grid(row=3, column=0, columnspan=2, pady=(self.padding, 0), sticky=tk.EW)
+
+        self.status_var = tk.StringVar(value="Готово")
+        self.status_label = ttk.Label(
+            self.status_frame,
+            textvariable=self.status_var,
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            font=('Arial', self.font_size - 1)
+        )
+        self.status_label.pack(fill=tk.X, ipady=2)
+
+        # Информация о записях
+        self.info_var = tk.StringVar(value="")
+        self.info_label = ttk.Label(
+            self.status_frame,
+            textvariable=self.info_var,
+            relief=tk.SUNKEN,
+            anchor=tk.E,
+            font=('Arial', self.font_size - 1)
+        )
+        self.info_label.pack(fill=tk.X, ipady=2)
+
+        # Применяем стили
+        self.update_styles()
+
+        # Текущая таблица
+        self.current_table = "employees"
+
+    def edit_record(self):
+        """Редактировать выбранную запись"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите запись для редактирования")
+            return
+
+        item = self.tree.item(selection[0])
+        values = item['values']
+        record_id = values[0]
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Редактировать запись в {self.current_table}")
+
+        # Адаптивный размер
+        dialog_width = min(500, self.root.winfo_width() - 100)
+        dialog_height = min(600, self.root.winfo_height() - 100)
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
+
+        # Центрируем
+        dialog.transient(self.root)
+        dialog.grab_set()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog_width) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog_height) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        if self.current_table == "employees":
+            self.edit_employee_dialog(dialog, record_id, values)
+        elif self.current_table == "clients":
+            self.edit_client_dialog(dialog, record_id, values)
+        elif self.current_table == "properties":
+            self.edit_property_dialog(dialog, record_id, values)
+        elif self.current_table == "deals":
+            self.edit_deal_dialog(dialog, record_id, values)
+        elif self.current_table == "viewings":
+            self.edit_viewing_dialog(dialog, record_id, values)
+        elif self.current_table == "services":
+            self.edit_service_dialog(dialog, record_id, values)
+        else:
+            messagebox.showinfo("Информация", "Редактирование недоступно для текущей таблицы")
+            dialog.destroy()
+
+    def edit_employee_dialog(self, dialog, employee_id, values):
+        """Редактирование сотрудника"""
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Редактирование сотрудника",
+                  font=('Arial', self.font_size, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 15))
+
+        # Поля формы
+        ttk.Label(main_frame, text="Имя:*", foreground='red').grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        first_name_var = tk.StringVar(value=values[1])
+        first_name_entry = ttk.Entry(main_frame, width=30, textvariable=first_name_var)
+        first_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Фамилия:*", foreground='red').grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        last_name_var = tk.StringVar(value=values[2])
+        last_name_entry = ttk.Entry(main_frame, width=30, textvariable=last_name_var)
+        last_name_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Телефон:*", foreground='red').grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        phone_var = tk.StringVar(value=values[3])
+        phone_entry = ttk.Entry(main_frame, width=30, textvariable=phone_var)
+        phone_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Email:*", foreground='red').grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        email_var = tk.StringVar(value=values[4])
+        email_entry = ttk.Entry(main_frame, width=30, textvariable=email_var)
+        email_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Дата найма:").grid(row=5, column=0, padx=5, pady=5, sticky=tk.W)
+        hire_date_var = tk.StringVar(value=values[5])
+        hire_date_entry = ttk.Entry(main_frame, width=30, textvariable=hire_date_var)
+        hire_date_entry.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Комиссия (%):*", foreground='red').grid(row=6, column=0, padx=5, pady=5,
+                                                                            sticky=tk.W)
+        commission_var = tk.StringVar(value=values[6])
+        commission_entry = ttk.Entry(main_frame, width=30, textvariable=commission_var)
+        commission_entry.grid(row=6, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Активен (преобразуем "Да"/"Нет" в True/False)
+        is_active = values[7] == "Да" if isinstance(values[7], str) else bool(values[7])
+        active_var = tk.BooleanVar(value=is_active)
+        ttk.Checkbutton(main_frame, text="Активен", variable=active_var).grid(
+            row=7, column=1, padx=5, pady=5, sticky=tk.W
+        )
+
+        def save():
+            """Сохранение изменений"""
+            # Проверка обязательных полей
+            if not all([first_name_var.get().strip(), last_name_var.get().strip(),
+                        phone_var.get().strip(), email_var.get().strip(), commission_var.get().strip()]):
+                messagebox.showerror("Ошибка", "Заполните все обязательные поля")
+                return
+
+            try:
+                data = (
+                    first_name_var.get().strip(),
+                    last_name_var.get().strip(),
+                    phone_var.get().strip(),
+                    email_var.get().strip(),
+                    hire_date_var.get().strip(),
+                    float(commission_var.get().strip()),
+                    active_var.get(),
+                    employee_id
+                )
+
+                query = """
+                UPDATE employees 
+                SET first_name = %s,
+                    last_name = %s,
+                    phone = %s,
+                    email = %s,
+                    hire_date = %s,
+                    commission_rate = %s,
+                    is_active = %s
+                WHERE id = %s
+                """
+
+                result = self.execute_query(query, data)
+                if result is not None:
+                    self.refresh_data()
+                    dialog.destroy()
+                    messagebox.showinfo("Успех", "Данные сотрудника обновлены")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+            except ValueError:
+                messagebox.showerror("Ошибка", "Комиссия должна быть числом")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при обновлении:\n{str(e)}")
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=8, column=0, columnspan=2, pady=20)
+
+        ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+        first_name_entry.focus_set()
+
+        def edit_client_dialog(self, dialog, client_id, values):
+            """Редактирование клиента"""
+            main_frame = ttk.Frame(dialog, padding=15)
+            main_frame.pack(fill=tk.BOTH, expand=True)
+
+            ttk.Label(main_frame, text="Редактирование клиента",
+                      font=('Arial', self.font_size, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 15))
+
+            # Поля формы
+            ttk.Label(main_frame, text="Имя:*", foreground='red').grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+            first_name_var = tk.StringVar(value=values[1])
+            first_name_entry = ttk.Entry(main_frame, width=30, textvariable=first_name_var)
+            first_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+            ttk.Label(main_frame, text="Фамилия:*", foreground='red').grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+            last_name_var = tk.StringVar(value=values[2])
+            last_name_entry = ttk.Entry(main_frame, width=30, textvariable=last_name_var)
+            last_name_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+            ttk.Label(main_frame, text="Телефон:*", foreground='red').grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+            phone_var = tk.StringVar(value=values[3])
+            phone_entry = ttk.Entry(main_frame, width=30, textvariable=phone_var)
+            phone_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+            ttk.Label(main_frame, text="Email:").grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+            email_var = tk.StringVar(value=values[4] if values[4] else "")
+            email_entry = ttk.Entry(main_frame, width=30, textvariable=email_var)
+            email_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+            ttk.Label(main_frame, text="Тип клиента:*", foreground='red').grid(row=5, column=0, padx=5, pady=5,
+                                                                               sticky=tk.W)
+            client_type_var = tk.StringVar(value=values[5])
+            client_type_combo = ttk.Combobox(main_frame, textvariable=client_type_var,
+                                             values=["buyer", "seller", "both"], state="readonly")
+            client_type_combo.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+
+            ttk.Label(main_frame, text="Дата регистрации:").grid(row=6, column=0, padx=5, pady=5, sticky=tk.W)
+            reg_date_var = tk.StringVar(value=values[6])
+            reg_date_entry = ttk.Entry(main_frame, width=30, textvariable=reg_date_var)
+            reg_date_entry.grid(row=6, column=1, padx=5, pady=5, sticky=tk.W)
+
+            def save():
+                """Сохранение изменений"""
+                if not all([first_name_var.get().strip(), last_name_var.get().strip(), phone_var.get().strip()]):
+                    messagebox.showerror("Ошибка", "Заполните все обязательные поля")
+                    return
+
+                # Проверка email
+                email = email_var.get().strip()
+                if email and '@' not in email:
+                    if not messagebox.askyesno("Предупреждение",
+                                               "Email может быть некорректным. Продолжить сохранение?"):
+                        return
+
+                data = (
+                    first_name_var.get().strip(),
+                    last_name_var.get().strip(),
+                    phone_var.get().strip(),
+                    email if email else None,
+                    client_type_var.get(),
+                    reg_date_var.get().strip(),
+                    client_id
+                )
+
+                query = """
+                UPDATE clients 
+                SET first_name = %s,
+                    last_name = %s,
+                    phone = %s,
+                    email = %s,
+                    client_type = %s,
+                    registration_date = %s
+                WHERE id = %s
+                """
+
+                result = self.execute_query(query, data)
+                if result is not None:
+                    self.refresh_data()
+                    dialog.destroy()
+                    messagebox.showinfo("Успех", "Данные клиента обновлены")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+            # Кнопки
+            button_frame = ttk.Frame(main_frame)
+            button_frame.grid(row=7, column=0, columnspan=2, pady=20)
+
+            ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+            ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+            first_name_entry.focus_set()
+
+            def edit_property_dialog(self, dialog, property_id, values):
+                """Редактирование объекта недвижимости"""
+                # Получаем списки для выпадающих списков
+                clients = self.execute_query("SELECT id, first_name || ' ' || last_name FROM clients", fetch=True)
+                employees = self.execute_query(
+                    "SELECT id, first_name || ' ' || last_name FROM employees WHERE is_active = true", fetch=True)
+
+                main_frame = ttk.Frame(dialog, padding=15)
+                main_frame.pack(fill=tk.BOTH, expand=True)
+
+                ttk.Label(main_frame, text="Редактирование объекта",
+                          font=('Arial', self.font_size, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 15))
+
+                # Преобразуем цену обратно из форматированной строки
+                price_str = values[6]
+                if isinstance(price_str, str) and "руб." in price_str:
+                    try:
+                        price_value = float(price_str.replace("руб.", "").replace(",", "").strip())
+                    except:
+                        price_value = 0.0
+                else:
+                    price_value = float(price_str) if price_str else 0.0
+
+                # Поля формы
+                ttk.Label(main_frame, text="Адрес:*", foreground='red').grid(row=1, column=0, padx=5, pady=5,
+                                                                             sticky=tk.W)
+                address_var = tk.StringVar(value=values[1])
+                address_entry = ttk.Entry(main_frame, width=30, textvariable=address_var)
+                address_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Город:*", foreground='red').grid(row=2, column=0, padx=5, pady=5,
+                                                                             sticky=tk.W)
+                city_var = tk.StringVar(value=values[2])
+                city_entry = ttk.Entry(main_frame, width=30, textvariable=city_var)
+                city_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Тип:*", foreground='red').grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+                type_var = tk.StringVar(value=values[3])
+                type_combo = ttk.Combobox(main_frame, textvariable=type_var,
+                                          values=["apartment", "house", "commercial", "land"], state="readonly")
+                type_combo.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Комнат:").grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+                rooms_var = tk.StringVar(value=str(values[4]) if values[4] else "")
+                rooms_entry = ttk.Entry(main_frame, width=30, textvariable=rooms_var)
+                rooms_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Площадь (м²):*", foreground='red').grid(row=5, column=0, padx=5, pady=5,
+                                                                                    sticky=tk.W)
+                area_var = tk.StringVar(value=str(values[5]))
+                area_entry = ttk.Entry(main_frame, width=30, textvariable=area_var)
+                area_entry.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Цена:*", foreground='red').grid(row=6, column=0, padx=5, pady=5,
+                                                                            sticky=tk.W)
+                price_var = tk.StringVar(value=str(price_value))
+                price_entry = ttk.Entry(main_frame, width=30, textvariable=price_var)
+                price_entry.grid(row=6, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Статус:*", foreground='red').grid(row=7, column=0, padx=5, pady=5,
+                                                                              sticky=tk.W)
+                status_var = tk.StringVar(value=values[7])
+                status_combo = ttk.Combobox(main_frame, textvariable=status_var,
+                                            values=["active", "sold", "rented", "archived"], state="readonly")
+                status_combo.grid(row=7, column=1, padx=5, pady=5, sticky=tk.W)
+
+                # Получаем текущих владельца и агента
+                current_owner_id = self.execute_query(
+                    "SELECT owner_id FROM properties WHERE id = %s",
+                    (property_id,), fetch=True
+                )
+                current_agent_id = self.execute_query(
+                    "SELECT agent_id FROM properties WHERE id = %s",
+                    (property_id,), fetch=True
+                )
+
+                ttk.Label(main_frame, text="Владелец:").grid(row=8, column=0, padx=5, pady=5, sticky=tk.W)
+                owner_var = tk.StringVar()
+                owner_combo = ttk.Combobox(main_frame, textvariable=owner_var, state="readonly", width=27)
+                owner_values = []
+                if clients:
+                    for c_id, c_name in clients:
+                        owner_values.append(f"{c_id} - {c_name}")
+                        if current_owner_id and c_id == current_owner_id[0][0]:
+                            owner_var.set(f"{c_id} - {c_name}")
+                owner_combo['values'] = owner_values
+                owner_combo.grid(row=8, column=1, padx=5, pady=5, sticky=tk.W)
+
+                ttk.Label(main_frame, text="Агент:").grid(row=9, column=0, padx=5, pady=5, sticky=tk.W)
+                agent_var = tk.StringVar()
+                agent_combo = ttk.Combobox(main_frame, textvariable=agent_var, state="readonly", width=27)
+                agent_values = []
+                if employees:
+                    for e_id, e_name in employees:
+                        agent_values.append(f"{e_id} - {e_name}")
+                        if current_agent_id and e_id == current_agent_id[0][0]:
+                            agent_var.set(f"{e_id} - {e_name}")
+                agent_combo['values'] = agent_values
+                agent_combo.grid(row=9, column=1, padx=5, pady=5, sticky=tk.W)
+
+                def save():
+                    """Сохранение изменений"""
+                    if not all([address_var.get().strip(), city_var.get().strip(),
+                                area_var.get().strip(), price_var.get().strip()]):
+                        messagebox.showerror("Ошибка", "Заполните все обязательные поля")
+                        return
+
+                    try:
+                        # Преобразуем данные
+                        rooms = int(rooms_var.get()) if rooms_var.get().strip() else None
+                        area = float(area_var.get())
+                        price = float(price_var.get())
+
+                        owner = owner_var.get()
+                        agent = agent_var.get()
+                        owner_id = int(owner.split(" - ")[0]) if owner else None
+                        agent_id = int(agent.split(" - ")[0]) if agent else None
+
+                        data = (
+                            address_var.get().strip(),
+                            city_var.get().strip(),
+                            type_var.get(),
+                            rooms,
+                            area,
+                            price,
+                            status_var.get(),
+                            owner_id,
+                            agent_id,
+                            property_id
+                        )
+
+                        query = """
+                        UPDATE properties 
+                        SET address = %s,
+                            city = %s,
+                            property_type = %s,
+                            rooms = %s,
+                            total_area = %s,
+                            price = %s,
+                            status = %s,
+                            owner_id = %s,
+                            agent_id = %s
+                        WHERE id = %s
+                        """
+
+                        result = self.execute_query(query, data)
+                        if result is not None:
+                            self.refresh_data()
+                            dialog.destroy()
+                            messagebox.showinfo("Успех", "Данные объекта обновлены")
+                        else:
+                            messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+                    except ValueError as e:
+                        messagebox.showerror("Ошибка", "Проверьте правильность числовых значений")
+                    except Exception as e:
+                        messagebox.showerror("Ошибка", f"Ошибка при обновлении:\n{str(e)}")
+
+                # Кнопки
+                button_frame = ttk.Frame(main_frame)
+                button_frame.grid(row=10, column=0, columnspan=2, pady=20)
+
+                ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+                ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+                address_entry.focus_set()
+
+                def edit_deal_dialog(self, dialog, deal_id, values):
+                    """Редактирование сделки"""
+                    # Получаем данные для выпадающих списков
+                    properties = self.execute_query("SELECT id, address FROM properties", fetch=True)
+                    clients = self.execute_query("SELECT id, first_name || ' ' || last_name FROM clients", fetch=True)
+                    employees = self.execute_query(
+                        "SELECT id, first_name || ' ' || last_name FROM employees WHERE is_active = true", fetch=True)
+
+                    # Получаем полные данные сделки из БД
+                    deal_data = self.execute_query(
+                        """SELECT property_id, buyer_id, seller_id, agent_id, deal_date, 
+                                  deal_price, commission_amount, deal_type 
+                           FROM deals WHERE id = %s""",
+                        (deal_id,), fetch=True
+                    )
+
+                    if not deal_data:
+                        messagebox.showerror("Ошибка", "Сделка не найдена")
+                        dialog.destroy()
+                        return
+
+                    deal = deal_data[0]
+
+                    main_frame = ttk.Frame(dialog, padding=15)
+                    main_frame.pack(fill=tk.BOTH, expand=True)
+
+                    ttk.Label(main_frame, text="Редактирование сделки",
+                              font=('Arial', self.font_size, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 15))
+
+                    # Вспомогательная функция для поиска значения в списке
+                    def find_in_list(items, target_id):
+                        for item_id, item_name in items:
+                            if item_id == target_id:
+                                return f"{item_id} - {item_name}"
+                        return ""
+
+                    # Поля формы
+                    ttk.Label(main_frame, text="Объект:*", foreground='red').grid(row=1, column=0, padx=5, pady=5,
+                                                                                  sticky=tk.W)
+                    property_var = tk.StringVar(value=find_in_list(properties, deal[0]))
+                    property_combo = ttk.Combobox(main_frame, textvariable=property_var, state="readonly", width=30)
+                    if properties:
+                        property_combo["values"] = [f"{p[0]} - {p[1]}" for p in properties]
+                    property_combo.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Покупатель:*", foreground='red').grid(row=2, column=0, padx=5, pady=5,
+                                                                                      sticky=tk.W)
+                    buyer_var = tk.StringVar(value=find_in_list(clients, deal[1]))
+                    buyer_combo = ttk.Combobox(main_frame, textvariable=buyer_var, state="readonly", width=30)
+                    if clients:
+                        buyer_combo["values"] = [f"{c[0]} - {c[1]}" for c in clients]
+                    buyer_combo.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Продавец:*", foreground='red').grid(row=3, column=0, padx=5, pady=5,
+                                                                                    sticky=tk.W)
+                    seller_var = tk.StringVar(value=find_in_list(clients, deal[2]))
+                    seller_combo = ttk.Combobox(main_frame, textvariable=seller_var, state="readonly", width=30)
+                    if clients:
+                        seller_combo["values"] = [f"{c[0]} - {c[1]}" for c in clients]
+                    seller_combo.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Агент:*", foreground='red').grid(row=4, column=0, padx=5, pady=5,
+                                                                                 sticky=tk.W)
+                    agent_var = tk.StringVar(value=find_in_list(employees, deal[3]))
+                    agent_combo = ttk.Combobox(main_frame, textvariable=agent_var, state="readonly", width=30)
+                    if employees:
+                        agent_combo["values"] = [f"{e[0]} - {e[1]}" for e in employees]
+                    agent_combo.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Дата сделки:").grid(row=5, column=0, padx=5, pady=5, sticky=tk.W)
+                    date_var = tk.StringVar(value=str(deal[4]))
+                    date_entry = ttk.Entry(main_frame, width=30, textvariable=date_var)
+                    date_entry.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Цена сделки:*", foreground='red').grid(row=6, column=0, padx=5, pady=5,
+                                                                                       sticky=tk.W)
+                    price_var = tk.StringVar(value=str(deal[5]))
+                    price_entry = ttk.Entry(main_frame, width=30, textvariable=price_var)
+                    price_entry.grid(row=6, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Комиссия:*", foreground='red').grid(row=7, column=0, padx=5, pady=5,
+                                                                                    sticky=tk.W)
+                    commission_var = tk.StringVar(value=str(deal[6]))
+                    commission_entry = ttk.Entry(main_frame, width=30, textvariable=commission_var)
+                    commission_entry.grid(row=7, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    ttk.Label(main_frame, text="Тип сделки:*", foreground='red').grid(row=8, column=0, padx=5, pady=5,
+                                                                                      sticky=tk.W)
+                    deal_type_var = tk.StringVar(value=deal[7])
+                    deal_type_combo = ttk.Combobox(main_frame, textvariable=deal_type_var,
+                                                   values=["sale", "rent"], state="readonly")
+                    deal_type_combo.grid(row=8, column=1, padx=5, pady=5, sticky=tk.W)
+
+                    def save():
+                        """Сохранение изменений"""
+                        if not all([property_var.get(), buyer_var.get(), seller_var.get(),
+                                    agent_var.get(), price_var.get().strip(), commission_var.get().strip()]):
+                            messagebox.showerror("Ошибка", "Заполните все обязательные поля")
+                            return
+
+                        try:
+                            # Преобразуем данные
+                            property_id = int(property_var.get().split(" - ")[0])
+                            buyer_id = int(buyer_var.get().split(" - ")[0])
+                            seller_id = int(seller_var.get().split(" - ")[0])
+                            agent_id = int(agent_var.get().split(" - ")[0])
+                            price = float(price_var.get())
+                            commission = float(commission_var.get())
+
+                            data = (
+                                property_id,
+                                buyer_id,
+                                seller_id,
+                                agent_id,
+                                date_var.get().strip(),
+                                price,
+                                commission,
+                                deal_type_var.get(),
+                                deal_id
+                            )
+
+                            query = """
+                            UPDATE deals 
+                            SET property_id = %s,
+                                buyer_id = %s,
+                                seller_id = %s,
+                                agent_id = %s,
+                                deal_date = %s,
+                                deal_price = %s,
+                                commission_amount = %s,
+                                deal_type = %s
+                            WHERE id = %s
+                            """
+
+                            result = self.execute_query(query, data)
+                            if result is not None:
+                                self.refresh_data()
+                                dialog.destroy()
+                                messagebox.showinfo("Успех", "Данные сделки обновлены")
+                            else:
+                                messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+                        except ValueError as e:
+                            messagebox.showerror("Ошибка", "Проверьте правильность числовых значений")
+                        except Exception as e:
+                            messagebox.showerror("Ошибка", f"Ошибка при обновлении:\n{str(e)}")
+
+                    # Кнопки
+                    button_frame = ttk.Frame(main_frame)
+                    button_frame.grid(row=9, column=0, columnspan=2, pady=20)
+
+                    ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+                    ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT,
+                                                                                                   padx=10)
+
+                    property_combo.focus_set()
+
+    def edit_viewing_dialog(self, dialog, viewing_id, values):
+        """Редактирование просмотра"""
+        # Получаем полные данные из БД
+        viewing_data = self.execute_query(
+            """SELECT property_id, client_id, agent_id, viewing_date, 
+                      status, client_feedback 
+               FROM viewings WHERE id = %s""",
+            (viewing_id,), fetch=True
+        )
+
+        if not viewing_data:
+            messagebox.showerror("Ошибка", "Просмотр не найден")
+            dialog.destroy()
+            return
+
+        viewing = viewing_data[0]
+
+        # Получаем списки для выпадающих списков
+        properties = self.execute_query("SELECT id, address FROM properties", fetch=True)
+        clients = self.execute_query("SELECT id, first_name || ' ' || last_name FROM clients", fetch=True)
+        employees = self.execute_query(
+            "SELECT id, first_name || ' ' || last_name FROM employees WHERE is_active = true", fetch=True)
+
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Редактирование просмотра",
+                  font=('Arial', self.font_size, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 15))
+
+        def find_in_list(items, target_id):
+            for item_id, item_name in items:
+                if item_id == target_id:
+                    return f"{item_id} - {item_name}"
+            return ""
+
+        # Поля формы
+        ttk.Label(main_frame, text="Объект:*", foreground='red').grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        property_var = tk.StringVar(value=find_in_list(properties, viewing[0]))
+        property_combo = ttk.Combobox(main_frame, textvariable=property_var, state="readonly", width=30)
+        if properties:
+            property_combo["values"] = [f"{p[0]} - {p[1]}" for p in properties]
+        property_combo.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Клиент:*", foreground='red').grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        client_var = tk.StringVar(value=find_in_list(clients, viewing[1]))
+        client_combo = ttk.Combobox(main_frame, textvariable=client_var, state="readonly", width=30)
+        if clients:
+            client_combo["values"] = [f"{c[0]} - {c[1]}" for c in clients]
+        client_combo.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Агент:").grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        agent_var = tk.StringVar(value=find_in_list(employees, viewing[2]) if viewing[2] else "")
+        agent_combo = ttk.Combobox(main_frame, textvariable=agent_var, state="readonly", width=30)
+        if employees:
+            agent_combo["values"] = [f"{e[0]} - {e[1]}" for e in employees]
+        agent_combo.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Парсим дату и время
+        viewing_datetime = viewing[3]
+        if isinstance(viewing_datetime, str):
+            try:
+                dt = datetime.strptime(viewing_datetime, "%Y-%m-%d %H:%M:%S")
+                date_str = dt.strftime("%Y-%m-%d")
+                time_str = dt.strftime("%H:%M")
+            except:
+                date_str = ""
+                time_str = ""
+        else:
+            date_str = viewing_datetime.strftime("%Y-%m-%d")
+            time_str = viewing_datetime.strftime("%H:%M")
+
+        ttk.Label(main_frame, text="Дата:*", foreground='red').grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        date_var = tk.StringVar(value=date_str)
+        date_entry = ttk.Entry(main_frame, width=30, textvariable=date_var)
+        date_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Время:*", foreground='red').grid(row=5, column=0, padx=5, pady=5, sticky=tk.W)
+        time_var = tk.StringVar(value=time_str)
+        time_entry = ttk.Entry(main_frame, width=30, textvariable=time_var)
+        time_entry.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Статус:*", foreground='red').grid(row=6, column=0, padx=5, pady=5, sticky=tk.W)
+        status_var = tk.StringVar(value=viewing[4])
+        status_combo = ttk.Combobox(main_frame, textvariable=status_var,
+                                    values=["scheduled", "completed", "cancelled"], state="readonly")
+        status_combo.grid(row=6, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Отзыв клиента:").grid(row=7, column=0, padx=5, pady=5, sticky=tk.W)
+        feedback_text = tk.Text(main_frame, height=4, width=30)
+        feedback_text.grid(row=7, column=1, padx=5, pady=5, sticky=tk.W)
+        feedback_text.insert("1.0", viewing[5] if viewing[5] else "")
+
+        def save():
+            """Сохранение изменений"""
+            if not all([property_var.get(), client_var.get(),
+                        date_var.get().strip(), time_var.get().strip()]):
+                messagebox.showerror("Ошибка", "Заполните все обязательные поля")
+                return
+
+            # Проверка даты и времени
+            try:
+                datetime_str = f"{date_var.get().strip()} {time_var.get().strip()}"
+                viewing_datetime = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
+
+                # Проверка на прошедшее время (если статус не "completed")
+                if status_var.get() != "completed":
+                    current_datetime = datetime.now()
+                    if viewing_datetime < current_datetime:
+                        messagebox.showerror("Ошибка", "Нельзя выбрать прошедшее время для будущих просмотров")
+                        return
+            except ValueError:
+                messagebox.showerror("Ошибка", "Неверный формат даты или времени")
+                return
+
+            try:
+                property_id = int(property_var.get().split(" - ")[0])
+                client_id = int(client_var.get().split(" - ")[0])
+                agent_id = int(agent_var.get().split(" - ")[0]) if agent_var.get() else None
+
+                data = (
+                    property_id,
+                    client_id,
+                    agent_id,
+                    datetime_str,
+                    status_var.get(),
+                    feedback_text.get("1.0", "end-1c").strip(),
+                    viewing_id
+                )
+
+                query = """
+                UPDATE viewings 
+                SET property_id = %s,
+                    client_id = %s,
+                    agent_id = %s,
+                    viewing_date = %s,
+                    status = %s,
+                    client_feedback = %s
+                WHERE id = %s
+                """
+
+                result = self.execute_query(query, data)
+                if result is not None:
+                    self.refresh_data()
+                    dialog.destroy()
+                    messagebox.showinfo("Успех", "Данные просмотра обновлены")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при обновлении:\n{str(e)}")
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=8, column=0, columnspan=2, pady=20)
+
+        ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+        property_combo.focus_set()
+
+    def edit_service_dialog(self, dialog, service_id, values):
+        """Редактирование услуги"""
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Редактирование услуги",
+                  font=('Arial', self.font_size, 'bold')).grid(row=0, column=0, columnspan=2, pady=(0, 15))
+
+        # Преобразуем цену из строки
+        price_str = values[3]
+        if isinstance(price_str, str) and "руб." in price_str:
+            try:
+                price_value = float(price_str.replace("руб.", "").replace(",", "").strip())
+            except:
+                price_value = 0.0
+        else:
+            price_value = float(price_str) if price_str else 0.0
+
+        # Поля формы
+        ttk.Label(main_frame, text="Название услуги:*", foreground='red').grid(row=1, column=0, padx=5, pady=5,
+                                                                               sticky=tk.W)
+        name_var = tk.StringVar(value=values[1])
+        name_entry = ttk.Entry(main_frame, width=30, textvariable=name_var)
+        name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Описание:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        desc_var = tk.StringVar(value=values[2])
+        desc_entry = ttk.Entry(main_frame, width=30, textvariable=desc_var)
+        desc_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Цена:*", foreground='red').grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        price_var = tk.StringVar(value=str(price_value))
+        price_entry = ttk.Entry(main_frame, width=30, textvariable=price_var)
+        price_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Срок (дней):").grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        duration_var = tk.StringVar(value=str(values[4]) if values[4] != "-" else "")
+        duration_entry = ttk.Entry(main_frame, width=30, textvariable=duration_var)
+        duration_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+        def save():
+            """Сохранение изменений"""
+            if not name_var.get().strip():
+                messagebox.showerror("Ошибка", "Введите название услуги")
+                return
+
+            try:
+                # Преобразуем данные
+                price = float(price_var.get()) if price_var.get().strip() else None
+                duration = int(duration_var.get()) if duration_var.get().strip() else None
+
+                data = (
+                    name_var.get().strip(),
+                    desc_var.get().strip(),
+                    price,
+                    duration,
+                    service_id
+                )
+
+                query = """
+                UPDATE services 
+                SET service_name = %s,
+                    description = %s,
+                    standard_price = %s,
+                    duration_days = %s
+                WHERE id = %s
+                """
+
+                result = self.execute_query(query, data)
+                if result is not None:
+                    self.refresh_data()
+                    dialog.destroy()
+                    messagebox.showinfo("Успех", "Данные услуги обновлены")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обновить данные")
+
+            except ValueError:
+                messagebox.showerror("Ошибка", "Цена и срок должны быть числами")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при обновлении:\n{str(e)}")
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=20)
+
+        ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+        name_entry.focus_set()
+
+
+    def create_treeview(self):
+        """Создать Treeview с адаптивными колонками"""
+        # Создаем Treeview и Scrollbar
+        self.tree = ttk.Treeview(self.tree_frame, show='headings')
+
+        # Вертикальная прокрутка
+        v_scrollbar = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
+        v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        self.tree.configure(yscrollcommand=v_scrollbar.set)
+
+        # Горизонтальная прокрутка
+        h_scrollbar = ttk.Scrollbar(self.tree_frame, orient="horizontal", command=self.tree.xview)
+        h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
+        self.tree.configure(xscrollcommand=h_scrollbar.set)
+
+        self.tree.grid(row=0, column=0, sticky=tk.NSEW)
+
+        # Настраиваем адаптивность Treeview
+        self.tree_frame.columnconfigure(0, weight=1)
+        self.tree_frame.rowconfigure(0, weight=1)
+
+    def adjust_treeview_columns(self):
+        """Настроить ширину колонок Treeview в зависимости от размера окна"""
+        if not hasattr(self, 'tree') or not self.tree['columns']:
+            return
+
+        window_width = self.root.winfo_width()
+        num_columns = len(self.tree['columns'])
+
+        # Рассчитываем базовую ширину колонки
+        if window_width >= 1400:
+            base_width = 150
+        elif window_width >= 1000:
+            base_width = 120
+        elif window_width >= 800:
+            base_width = 100
+        else:
+            base_width = 80
+
+        # Устанавливаем ширину для каждой колонки
+        for col in self.tree['columns']:
+            self.tree.column(col, width=base_width, minwidth=base_width // 2)
+
+    def show_employees(self):
+        """Показать таблицу сотрудников"""
+        self.current_table = "employees"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Имя", "Фамилия", "Телефон", "Email", "Дата найма", "Комиссия %", "Активен")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        # Очищаем старые данные
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        # Настраиваем ширину колонок
+        self.adjust_treeview_columns()
+
+        # Загружаем данные
+        self.load_employees()
+        self.status_var.set("Таблица: Сотрудники")
+        self.update_record_count()
+
+    def load_employees(self):
+        """Загрузить данные сотрудников"""
+        query = """
+        SELECT id, first_name, last_name, phone, email, hire_date, 
+               commission_rate, is_active 
+        FROM employees 
+        ORDER BY id
+        """
+
+        rows = self.execute_query(query, fetch=True)
+        if rows:
+            for row in rows:
+                # Форматируем булево значение
+                formatted_row = list(row)
+                formatted_row[-1] = "Да" if row[-1] else "Нет"
+                self.tree.insert("", tk.END, values=formatted_row)
+
+        self.update_record_count()
+
+    def show_clients(self):
+        """Показать таблицу клиентов"""
+        self.current_table = "clients"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Имя", "Фамилия", "Телефон", "Email", "Тип", "Дата регистрации")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.adjust_treeview_columns()
+
+        query = """
+           SELECT id, first_name, last_name, phone, email, client_type, registration_date
+           FROM clients 
+           ORDER BY id
+           """
+
+        rows = self.execute_query(query, fetch=True)
+        if rows:
+            for row in rows:
+                self.tree.insert("", tk.END, values=row)
+
+        self.status_var.set("Таблица: Клиенты")
+        self.update_record_count()
+
+    def show_properties(self):
+        """Показать таблицу объектов"""
+        self.current_table = "properties"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Адрес", "Город", "Тип", "Комнат", "Площадь", "Цена", "Статус")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.adjust_treeview_columns()
+
+        query = """
+           SELECT id, address, city, property_type, rooms, total_area, price, status
+           FROM properties 
+           ORDER BY id
+           """
+
+        rows = self.execute_query(query, fetch=True)
+        if rows:
+            for row in rows:
+                formatted_row = list(row)
+                # Форматируем цену
+                formatted_row[6] = f"{row[6]:,.2f} руб."
+                self.tree.insert("", tk.END, values=formatted_row)
+
+        self.status_var.set("Таблица: Объекты недвижимости")
+        self.update_record_count()
+
+    def show_deals(self):
+        """Показать таблицу сделок"""
+        self.current_table = "deals"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Объект", "Покупатель", "Агент", "Дата", "Цена", "Комиссия", "Тип")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.adjust_treeview_columns()
+
+        query = """
+           SELECT d.id, p.address, 
+                  buyer.first_name || ' ' || buyer.last_name as buyer_name,
+                  e.first_name || ' ' || e.last_name as agent_name,
+                  d.deal_date, d.deal_price, d.commission_amount, d.deal_type
+           FROM deals d
+           JOIN properties p ON d.property_id = p.id
+           JOIN clients buyer ON d.buyer_id = buyer.id
+           JOIN employees e ON d.agent_id = e.id
+           ORDER BY d.deal_date DESC
+           """
+
+        rows = self.execute_query(query, fetch=True)
+        if rows:
+            for row in rows:
+                formatted_row = list(row)
+                formatted_row[5] = f"{row[5]:,.2f} руб."
+                formatted_row[6] = f"{row[6]:,.2f} руб."
+                self.tree.insert("", tk.END, values=formatted_row)
+
+        self.status_var.set("Таблица: Сделки")
+        self.update_record_count()
+
+    def show_viewings(self):
+        """Показать таблицу просмотров"""
+        self.current_table = "viewings"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Объект", "Клиент", "Дата", "Статус", "Отзыв")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.adjust_treeview_columns()
+
+        query = """
+           SELECT v.id, p.address, 
+                  c.first_name || ' ' || c.last_name as client_name,
+                  v.viewing_date, v.status, 
+                  COALESCE(LEFT(v.client_feedback, 30) || '...', 'Нет отзыва')
+           FROM viewings v
+           JOIN properties p ON v.property_id = p.id
+           JOIN clients c ON v.client_id = c.id
+           ORDER BY v.viewing_date DESC
+           """
+
+        rows = self.execute_query(query, fetch=True)
+        if rows:
+            for row in rows:
+                self.tree.insert("", tk.END, values=row)
+
+        self.status_var.set("Таблица: Просмотры объектов")
+        self.update_record_count()
+
+    def show_services(self):
+        """Показать таблицу услуг"""
+        self.current_table = "services"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Название", "Описание", "Цена", "Срок")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.adjust_treeview_columns()
+
+        query = """
+           SELECT id, service_name, 
+                  COALESCE(LEFT(description, 50) || '...', 'Нет описания'), 
+                  standard_price, duration_days
+           FROM services 
+           ORDER BY id
+           """
+
+        rows = self.execute_query(query, fetch=True)
+        if rows:
+            for row in rows:
+                formatted_row = list(row)
+                formatted_row[3] = f"{row[3]:,.2f} руб." if row[3] else "-"
+                self.tree.insert("", tk.END, values=formatted_row)
+
+        self.status_var.set("Таблица: Услуги")
+        self.update_record_count()
+
+    def show_reports(self):
+        """Показать отчеты"""
+        self.current_table = "reports"
+
+        # Очищаем tree
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        # Скрываем Treeview
+        self.tree_frame.grid_remove()
+
+        # Создаем текстовый виджет для отчетов
+        if hasattr(self, 'report_text'):
+            self.report_text.destroy()
+
+        self.report_frame = ttk.Frame(self.data_container)
+        self.report_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.report_frame.columnconfigure(0, weight=1)
+        self.report_frame.rowconfigure(0, weight=1)
+
+        self.report_text = tk.Text(
+            self.report_frame,
+            wrap=tk.WORD,
+            font=('Courier', self.font_size - 1)
+        )
+        self.report_text.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(self.report_text, command=self.report_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.report_text.configure(yscrollcommand=scrollbar.set)
+
+        # Генерируем отчеты
+        reports = self.generate_reports()
+        self.report_text.insert(tk.END, reports)
+        self.report_text.config(state=tk.DISABLED)
+
+        self.status_var.set("Отчеты")
+        self.info_var.set("")
+
+    def show_employees(self):
+        """Показать таблицу сотрудников"""
+        self.current_table = "employees"
+
+        # Удаляем фрейм с отчетами, если он существует
+        if hasattr(self, 'report_frame'):
+            self.report_frame.destroy()
+            delattr(self, 'report_frame')
+
+        # Показываем Treeview
+        self.tree_frame.grid()
+
+        self.tree["columns"] = ("ID", "Имя", "Фамилия", "Телефон", "Email", "Дата найма", "Комиссия %", "Активен")
+
+        for col in self.tree["columns"]:
+            self.tree.heading(col, text=col)
+
+        # Очищаем старые данные
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        # Настраиваем ширину колонок
+        self.adjust_treeview_columns()
+
+        # Загружаем данные
+        self.load_employees()
+        self.status_var.set("Таблица: Сотрудники")
+        self.update_record_count()
+
+    def generate_reports(self):
+        """Генерация отчетов"""
+        reports = "=" * 60 + "\n"
+        reports += "ОТЧЕТЫ РИЭЛТОРСКОГО АГЕНТСТВА\n"
+        reports += "=" * 60 + "\n\n"
+
+        # 1. Статистика по агентам
+        query1 = """
+        SELECT e.first_name || ' ' || e.last_name as agent,
+               COUNT(d.id) as deals_count,
+               COALESCE(SUM(d.commission_amount), 0) as total_commission
+        FROM employees e
+        LEFT JOIN deals d ON e.id = d.agent_id
+        WHERE e.is_active = true
+        GROUP BY e.id
+        ORDER BY total_commission DESC
+        """
+
+        rows1 = self.execute_query(query1, fetch=True)
+        if rows1:
+            reports += "1. СТАТИСТИКА ПО АГЕНТАМ:\n"
+            reports += "-" * 40 + "\n"
+            for row in rows1:
+                reports += f"Агент: {row[0]}\n"
+                reports += f"  Сделок: {row[1]}\n"
+                reports += f"  Комиссия: {row[2]:,.2f} руб.\n"
+            reports += "\n"
+
+        # 2. Статистика по объектам
+        query2 = """
+        SELECT property_type, 
+               COUNT(*) as total,
+               SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+               SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,
+               AVG(price) as avg_price
+        FROM properties
+        GROUP BY property_type
+        """
+
+        rows2 = self.execute_query(query2, fetch=True)
+        if rows2:
+            reports += "2. СТАТИСТИКА ПО ОБЪЕКТАМ:\n"
+            reports += "-" * 40 + "\n"
+            for row in rows2:
+                type_name = {'apartment': 'Квартиры', 'house': 'Дома',
+                             'commercial': 'Коммерческие', 'land': 'Земля'}.get(row[0], row[0])
+                reports += f"{type_name}:\n"
+                reports += f"  Всего: {row[1]}, Активных: {row[2]}, Продано: {row[3]}\n"
+                reports += f"  Средняя цена: {row[4]:,.2f} руб.\n"
+            reports += "\n"
+
+        # 3. Доходы от услуг
+        query3 = """
+        SELECT s.service_name,
+               COUNT(sr.id) as requests_count,
+               COALESCE(SUM(sr.actual_price), 0) as total_income
+        FROM services s
+        LEFT JOIN service_requests sr ON s.id = sr.service_id
+        GROUP BY s.id, s.service_name
+        """
+
+        rows3 = self.execute_query(query3, fetch=True)
+        if rows3:
+            reports += "3. ДОХОДЫ ОТ УСЛУГ:\n"
+            reports += "-" * 40 + "\n"
+            for row in rows3:
+                reports += f"{row[0]}:\n"
+                reports += f"  Заявок: {row[1]}, Доход: {row[2]:,.2f} руб.\n"
+
+        return reports
+
+    def update_record_count(self):
+        """Обновить количество записей в статусной строке"""
+        count = len(self.tree.get_children())
+        self.info_var.set(f"Записей: {count}")
+
+    def add_record(self):
+        """Добавить запись"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Добавить запись в {self.current_table}")
+
+        # Адаптивный размер диалогового окна
+        dialog_width = min(500, self.root.winfo_width() - 100)
+        dialog_height = min(600, self.root.winfo_height() - 100)
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
+
+        # Центрируем диалоговое окно
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog_width) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog_height) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        if self.current_table == "employees":
+            self.add_employee_dialog(dialog)
+        elif self.current_table == "clients":
+            self.add_client_dialog(dialog)
+        elif self.current_table == "properties":
+            self.add_property_dialog(dialog)
+        elif self.current_table == "deals":
+            self.add_deal_dialog(dialog)
+        elif self.current_table == "viewings":
+            self.add_viewing_dialog(dialog)
+        elif self.current_table == "services":
+            self.add_service_dialog(dialog)
+        else:
+            messagebox.showinfo("Информация", "Выберите таблицу для добавления записи")
+            dialog.destroy()
+
+    def add_employee_dialog(self, dialog, entries=None):
+        """Диалог добавления сотрудника - кнопка сохранить заблокирована пока не заполнены все поля"""
+        dialog.title("Добавить сотрудника")
+
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Создаем переменные для каждого поля
+        first_name_var = tk.StringVar()
+        last_name_var = tk.StringVar()
+        phone_var = tk.StringVar()
+        email_var = tk.StringVar()
+        commission_var = tk.StringVar(value="2.5")
+
+        # Функция для проверки всех полей
+        def check_all_fields():
+            """Проверяет заполнение всех полей"""
+            conditions = [
+                bool(first_name_var.get().strip()),
+                bool(last_name_var.get().strip()),
+                bool(phone_var.get().strip()),
+                bool(email_var.get().strip()),
+                bool(commission_var.get().strip())
+            ]
+            return all(conditions)
+
+        def update_save_button(*args):
+            """Обновляет состояние кнопки Сохранить"""
+            if check_all_fields():
+                save_button.configure(state='normal')
+                status_label.configure(text="✓ Можно сохранить", foreground='green')
+            else:
+                save_button.configure(state='disabled')
+                status_label.configure(text="Заполните все поля", foreground='black')
+
+        # Привязываем отслеживание изменений
+        first_name_var.trace('w', update_save_button)
+        last_name_var.trace('w', update_save_button)
+        phone_var.trace('w', update_save_button)
+        email_var.trace('w', update_save_button)
+        commission_var.trace('w', update_save_button)
+
+        # Поля формы
+        ttk.Label(main_frame, text="Имя:*", foreground='black').grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        first_name_entry = ttk.Entry(main_frame, width=30, textvariable=first_name_var)
+        first_name_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Фамилия:*", foreground='black').grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        last_name_entry = ttk.Entry(main_frame, width=30, textvariable=last_name_var)
+        last_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Телефон:*", foreground='black').grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        phone_entry = ttk.Entry(main_frame, width=30, textvariable=phone_var)
+        phone_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Email:*", foreground='black').grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        email_entry = ttk.Entry(main_frame, width=30, textvariable=email_var)
+        email_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Комиссия (%):*", foreground='black').grid(row=4, column=0, padx=5, pady=5,
+                                                                            sticky=tk.W)
+        commission_entry = ttk.Entry(main_frame, width=30, textvariable=commission_var)
+        commission_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Checkbox для активности
+        active_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(main_frame, text="Активен", variable=active_var).grid(
+            row=5, column=1, padx=5, pady=5, sticky=tk.W
+        )
+
+        # Статусная строка
+        status_label = ttk.Label(main_frame, text="Заполните все поля", foreground='black')
+        status_label.grid(row=6, column=0, columnspan=2, pady=(10, 5))
+
+        # Функция сохранения с дополнительной проверкой
+        def save():
+            # Проверка email
+            email = email_var.get().strip()
+            if '@' not in email:
+                messagebox.showerror("Ошибка", "Email должен содержать '@'")
+                email_entry.focus_set()
+                return
+
+            # Проверка комиссии
+            try:
+                commission = float(commission_var.get().strip())
+                if commission <= 0:
+                    messagebox.showerror("Ошибка", "Комиссия должна быть больше 0")
+                    commission_entry.focus_set()
+                    return
+            except ValueError:
+                messagebox.showerror("Ошибка", "Комиссия должна быть числом")
+                commission_entry.focus_set()
+                return
+
+            # Все проверки пройдены
+            data = (
+                first_name_var.get().strip(),
+                last_name_var.get().strip(),
+                phone_var.get().strip(),
+                email,
+                commission,
+                active_var.get()
+            )
+
+            query = """
+            INSERT INTO employees (first_name, last_name, phone, email, commission_rate, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """
+
+            self.execute_query(query, data)
+            self.refresh_data()
+            dialog.destroy()
+            messagebox.showinfo("Успех", "Сотрудник добавлен")
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=7, column=0, columnspan=2, pady=20)
+
+        save_button = ttk.Button(button_frame, text="Сохранить", command=save, width=15, state='disabled')
+        save_button.pack(side=tk.LEFT, padx=10)
+
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+        # Фокус на первое поле
+        first_name_entry.focus_set()
+
+        # Функция проверки полей
+        def check_fields():
+            """Проверяет заполнение всех полей"""
+            missing_fields = []
+
+            for key, (label, widget) in fields.items():
+                value = widget.get().strip()
+                if not value:
+                    missing_fields.append(label)
+                    # Подсвечиваем поле с ошибкой
+                    widget.configure(style='Error.TEntry')
+                else:
+                    widget.configure(style='TEntry')
+
+                    # Дополнительная проверка для email
+                    if key == "email" and '@' not in value:
+                        messagebox.showerror("Ошибка", "Email должен содержать '@'")
+                        widget.configure(style='Error.TEntry')
+                        return False
+
+                    # Дополнительная проверка для комиссии
+                    if key == "commission":
+                        try:
+                            comm = float(value)
+                            if comm <= 0:
+                                messagebox.showerror("Ошибка", "Комиссия должна быть больше 0")
+                                widget.configure(style='Error.TEntry')
+                                return False
+                        except ValueError:
+                            messagebox.showerror("Ошибка", "Комиссия должна быть числом")
+                            widget.configure(style='Error.TEntry')
+                            return False
+
+            if missing_fields:
+                messagebox.showerror(
+                    "Обязательные поля не заполнены",
+                    f"Заполните следующие поля:\n\n• " + "\n• ".join(missing_fields)
+                )
+                return False
+
+            return True
+
+        def save(entries=None):
+            """Сохраняет запись после проверки
+            :param entries:
+            """
+            if not check_fields():
+                return
+
+            try:
+                data = (
+                    entries["first_name"].get().strip(),
+                    entries["last_name"].get().strip(),
+                    entries["phone"].get().strip(),
+                    entries["email"].get().strip(),
+                    float(entries["commission"].get().strip()),
+                    active_var.get()
+                )
+
+                query = """
+                INSERT INTO employees (first_name, last_name, phone, email, commission_rate, is_active)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
+
+                self.execute_query(query, data)
+                self.refresh_data()
+                dialog.destroy()
+                messagebox.showinfo("Успех", "Сотрудник добавлен")
+
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось добавить сотрудника:\n{str(e)}")
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=row, column=0, columnspan=2, pady=20)
+
+        ttk.Button(button_frame, text="Сохранить", command=save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+        # Стиль для ошибок
+        style = ttk.Style()
+        style.configure('Error.TEntry', fieldbackground='#FFE6E6', foreground='black')
+
+        # Фокус на первое поле
+        entries["first_name"].focus_set()
+
+    def add_client_dialog(self, dialog):
+        """Диалог добавления клиента - универсальный с полной валидацией"""
+        dialog.title("Добавить клиента")
+
+        main_frame = ttk.Frame(dialog, padding=15)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Создаем стиль для ошибок
+        style = ttk.Style()
+        style.configure('Error.TEntry', fieldbackground='#FFE6E6', foreground='black')
+        style.configure('Error.TCombobox', fieldbackground='#FFE6E6', foreground='black')
+
+        # Поля формы
+        ttk.Label(main_frame, text="Имя:*", foreground='black').grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        first_name_entry = ttk.Entry(main_frame, width=30)
+        first_name_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Фамилия:*", foreground='black').grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        last_name_entry = ttk.Entry(main_frame, width=30)
+        last_name_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Телефон:*", foreground='black').grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        phone_entry = ttk.Entry(main_frame, width=30)
+        phone_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Email:*", foreground='black').grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        email_entry = ttk.Entry(main_frame, width=30)
+        email_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Выбор типа клиента
+        ttk.Label(main_frame, text="Тип клиента:*", foreground='black').grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        client_type_var = tk.StringVar(value="")
+        client_type_combo = ttk.Combobox(main_frame, textvariable=client_type_var,
+                                         values=["buyer", "seller", "both"], state="readonly")
+        client_type_combo.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Информационное сообщение
+        info_label = ttk.Label(main_frame, text="* - обязательные поля", foreground='black')
+        info_label.grid(row=5, column=0, columnspan=2, pady=(10, 5))
+
+        # Функция проверки всех полей
+        def validate_all_fields():
+            """Проверяет все поля и возвращает список ошибок"""
+            errors = []
+
+            # Сбрасываем стили
+            first_name_entry.configure(style='TEntry')
+            last_name_entry.configure(style='TEntry')
+            phone_entry.configure(style='TEntry')
+            email_entry.configure(style='TEntry')
+            client_type_combo.configure(style='TCombobox')
+
+            # Проверка имени
+            first_name = first_name_entry.get().strip()
+            if not first_name:
+                errors.append("Имя не заполнено")
+                first_name_entry.configure(style='Error.TEntry')
+            elif len(first_name) < 2:
+                errors.append("Имя должно содержать минимум 2 символа")
+                first_name_entry.configure(style='Error.TEntry')
+
+            # Проверка фамилии
+            last_name = last_name_entry.get().strip()
+            if not last_name:
+                errors.append("Фамилия не заполнена")
+                last_name_entry.configure(style='Error.TEntry')
+            elif len(last_name) < 2:
+                errors.append("Фамилия должна содержать минимум 2 символа")
+                last_name_entry.configure(style='Error.TEntry')
+
+            # Проверка телефона
+            phone = phone_entry.get().strip()
+            if not phone:
+                errors.append("Телефон не заполнен")
+                phone_entry.configure(style='Error.TEntry')
+            else:
+                # Считаем количество цифр
+                digit_count = sum(c.isdigit() for c in phone)
+                if digit_count < 5:
+                    errors.append("Телефон должен содержать минимум 5 цифр")
+                    phone_entry.configure(style='Error.TEntry')
+
+            # Проверка email
+            email = email_entry.get().strip()
+            if not email:
+                errors.append("Email не заполнен")
+                email_entry.configure(style='Error.TEntry')
+            else:
+                # Базовая проверка email
+                if '@' not in email:
+                    errors.append("Email должен содержать символ '@'")
+                    email_entry.configure(style='Error.TEntry')
+                elif '.' not in email.split('@')[-1]:
+                    errors.append("Email должен содержать домен (например: .com, .ru)")
+                    email_entry.configure(style='Error.TEntry')
+
+            # Проверка типа клиента
+            client_type = client_type_var.get()
+            if not client_type:
+                errors.append("Выберите тип клиента")
+                client_type_combo.configure(style='Error.TCombobox')
+
+            return errors
+
+        # Функция сохранения
+        def save():
+            errors = validate_all_fields()
+
+            if errors:
+                # Показываем все ошибки
+                error_text = "Исправьте следующие ошибки:\n\n" + "\n".join(f"• {error}" for error in errors)
+                messagebox.showerror("Ошибки заполнения", error_text)
+                return
+
+            # Все проверки пройдены
+            try:
+                data = (
+                    first_name_entry.get().strip(),
+                    last_name_entry.get().strip(),
+                    phone_entry.get().strip(),
+                    email_entry.get().strip(),
+                    client_type_var.get()
+                )
+
+                query = """
+                INSERT INTO clients (first_name, last_name, phone, email, client_type)
+                VALUES (%s, %s, %s, %s, %s)
+                """
+
+                result = self.execute_query(query, data)
+                if result is not None:
+                    self.refresh_data()
+                    dialog.destroy()
+                    messagebox.showinfo("Успех", "Клиент успешно добавлен")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось добавить клиента")
+
+            except Exception as e:
+                messagebox.showerror("Ошибка базы данных", f"Произошла ошибка:\n{str(e)}")
+
+        # Функция очистки формы
+        def clear_form():
+            first_name_entry.delete(0, tk.END)
+            last_name_entry.delete(0, tk.END)
+            phone_entry.delete(0, tk.END)
+            email_entry.delete(0, tk.END)
+            client_type_var.set("")
+
+            # Сбрасываем стили
+            first_name_entry.configure(style='TEntry')
+            last_name_entry.configure(style='TEntry')
+            phone_entry.configure(style='TEntry')
+            email_entry.configure(style='TEntry')
+            client_type_combo.configure(style='TCombobox')
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+
+        ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Очистить", command=clear_form, width=15).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=10)
+
+        # Привязываем Enter к сохранению
+        dialog.bind('<Return>', lambda e: save())
+
+        # Фокус на первое поле
+        first_name_entry.focus_set()
+
+    def add_property_dialog(self, dialog):
+        """Диалог добавления объекта - адаптивный"""
+        # Получаем список клиентов и сотрудников
+        clients = self.execute_query("SELECT id, first_name || ' ' || last_name FROM clients", fetch=True)
+        employees = self.execute_query(
+            "SELECT id, first_name || ' ' || last_name FROM employees WHERE is_active = true", fetch=True)
+
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=self.padding, pady=self.padding)
+
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Поля формы
+        fields = [
+            ("Адрес:", "entry"),
+            ("Город:", "entry"),
+            ("Тип:", "combo"),
+            ("Комнат:", "entry"),
+            ("Площадь (м²):", "entry"),
+            ("Цена:", "entry"),
+            ("Статус:", "combo"),
+            ("Владелец:", "combo"),
+            ("Агент:", "combo"),
+        ]
+
+        entries = {}
+        combo_values = {
+            "Тип:": ["apartment", "house", "commercial", "land"],
+            "Статус:": ["active", "sold", "rented", "archived"],
+            "Владелец:": [f"{c[0]} - {c[1]}" for c in clients] if clients else [],
+            "Агент:": [f"{e[0]} - {e[1]}" for e in employees] if employees else [],
+        }
+
+        for i, (label, field_type) in enumerate(fields):
+            ttk.Label(scrollable_frame, text=label).grid(row=i, column=0, padx=5, pady=5, sticky=tk.W)
+
+            if field_type == "entry":
+                entry = ttk.Entry(scrollable_frame, width=30)
+                if label == "Город:":
+                    entry.insert(0, "Москва")
+                entry.grid(row=i, column=1, padx=5, pady=5, sticky=tk.W)
+                entries[label] = entry
+            elif field_type == "combo":
+                var = tk.StringVar()
+                if label == "Тип:":
+                    var.set("apartment")
+                elif label == "Статус:":
+                    var.set("active")
+
+                combo = ttk.Combobox(scrollable_frame, textvariable=var, values=combo_values[label],
+                                     state="readonly", width=27)
+                combo.grid(row=i, column=1, padx=5, pady=5, sticky=tk.W)
+                entries[label] = var
+
+        def save():
+            try:
+                owner_id = int(entries["Владелец:"].get().split(" - ")[0]) if entries["Владелец:"].get() else None
+                agent_id = int(entries["Агент:"].get().split(" - ")[0]) if entries["Агент:"].get() else None
+
+                data = (
+                    entries["Адрес:"].get(),
+                    entries["Город:"].get(),
+                    entries["Тип:"].get(),
+                    int(entries["Комнат:"].get()) if entries["Комнат:"].get() else None,
+                    float(entries["Площадь (м²):"].get()),
+                    float(entries["Цена:"].get()),
+                    entries["Статус:"].get(),
+                    owner_id,
+                    agent_id
+                )
+
+                query = """
+                INSERT INTO properties (address, city, property_type, rooms, total_area, 
+                                       price, status, owner_id, agent_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+
+                self.execute_query(query, data)
+                self.refresh_data()
+                dialog.destroy()
+                messagebox.showinfo("Успех", "Объект добавлен")
+            except ValueError as e:
+                messagebox.showerror("Ошибка", "Проверьте правильность ввода числовых значений")
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
+        ttk.Button(scrollable_frame, text="Сохранить", command=save).grid(
+            row=len(fields) + 1, column=0, columnspan=2, pady=20
+        )
+
+    def add_deal_dialog(self, dialog):
+        """Диалог добавления сделки - адаптивный"""
+        # Получаем данные для выпадающих списков
+        properties = self.execute_query("SELECT id, address FROM properties", fetch=True)
+        clients = self.execute_query("SELECT id, first_name || ' ' || last_name FROM clients", fetch=True)
+        employees = self.execute_query(
+            "SELECT id, first_name || ' ' || last_name FROM employees WHERE is_active = true", fetch=True)
+
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=self.padding, pady=self.padding)
+
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Поля формы
+        fields = [
+            ("Объект:", "combo"),
+            ("Покупатель:", "combo"),
+            ("Продавец:", "combo"),
+            ("Агент:", "combo"),
+            ("Цена сделки:", "entry"),
+            ("Комиссия:", "entry"),
+            ("Тип сделки:", "combo"),
+        ]
+
+        entries = {}
+        combo_values = {
+            "Объект:": [f"{p[0]} - {p[1]}" for p in properties] if properties else [],
+            "Покупатель:": [f"{c[0]} - {c[1]}" for c in clients] if clients else [],
+            "Продавец:": [f"{c[0]} - {c[1]}" for c in clients] if clients else [],
+            "Агент:": [f"{e[0]} - {e[1]}" for e in employees] if employees else [],
+            "Тип сделки:": ["sale", "rent"],
+        }
+
+        for i, (label, field_type) in enumerate(fields):
+            ttk.Label(scrollable_frame, text=label).grid(row=i, column=0, padx=5, pady=5, sticky=tk.W)
+
+            if field_type == "entry":
+                entry = ttk.Entry(scrollable_frame, width=30)
+                entry.grid(row=i, column=1, padx=5, pady=5, sticky=tk.W)
+                entries[label] = entry
+            elif field_type == "combo":
+                var = tk.StringVar()
+                if label == "Тип сделки:":
+                    var.set("sale")
+
+                combo = ttk.Combobox(scrollable_frame, textvariable=var, values=combo_values[label],
+                                     state="readonly", width=27)
+                combo.grid(row=i, column=1, padx=5, pady=5, sticky=tk.W)
+                entries[label] = var
+
+        def save():
+            try:
+                # Получаем ID из выбранных значений
+                property_id = int(entries["Объект:"].get().split(" - ")[0]) if entries["Объект:"].get() else None
+                buyer_id = int(entries["Покупатель:"].get().split(" - ")[0]) if entries["Покупатель:"].get() else None
+                seller_id = int(entries["Продавец:"].get().split(" - ")[0]) if entries["Продавец:"].get() else None
+                agent_id = int(entries["Агент:"].get().split(" - ")[0]) if entries["Агент:"].get() else None
+
+                data = (
+                    property_id,
+                    buyer_id,
+                    seller_id,
+                    agent_id,
+                    float(entries["Цена сделки:"].get()),
+                    float(entries["Комиссия:"].get()),
+                    entries["Тип сделки:"].get()
+                )
+
+                query = """
+                INSERT INTO deals (property_id, buyer_id, seller_id, agent_id, 
+                                 deal_price, commission_amount, deal_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """
+
+                self.execute_query(query, data)
+                self.refresh_data()
+                dialog.destroy()
+                messagebox.showinfo("Успех", "Сделка добавлена")
+            except ValueError as e:
+                messagebox.showerror("Ошибка", "Проверьте правильность ввода данных")
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
+        ttk.Button(scrollable_frame, text="Сохранить", command=save).grid(
+            row=len(fields) + 1, column=0, columnspan=2, pady=20
+        )
+
+    def add_viewing_dialog(self, dialog):
+        """Диалог добавления просмотра - с календарем"""
+        from tkinter import simpledialog
+        import calendar
+
+        properties = self.execute_query("SELECT id, address FROM properties", fetch=True)
+        clients = self.execute_query("SELECT id, first_name || ' ' || last_name FROM clients", fetch=True)
+        employees = self.execute_query(
+            "SELECT id, first_name || ' ' || last_name FROM employees WHERE is_active = true", fetch=True)
+
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=self.padding, pady=self.padding)
+
+        # Стиль для ошибок
+        style = ttk.Style()
+        style.configure('Error.TEntry', fieldbackground='#FFE6E6', foreground='red')
+        style.configure('Disabled.TEntry', foreground='gray')
+
+        # Поля формы
+        ttk.Label(main_frame, text="Объект:*", foreground='red').grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        property_var = tk.StringVar()
+        property_combo = ttk.Combobox(main_frame, textvariable=property_var, state="readonly", width=35)
+        if properties:
+            property_combo["values"] = [f"{p[0]} - {p[1]}" for p in properties]
+        property_combo.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Клиент:*", foreground='red').grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        client_var = tk.StringVar()
+        client_combo = ttk.Combobox(main_frame, textvariable=client_var, state="readonly", width=35)
+        if clients:
+            client_combo["values"] = [f"{c[0]} - {c[1]}" for c in clients]
+        client_combo.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Агент:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        agent_var = tk.StringVar()
+        agent_combo = ttk.Combobox(main_frame, textvariable=agent_var, state="readonly", width=35)
+        if employees:
+            agent_combo["values"] = [f"{e[0]} - {e[1]}" for e in employees]
+        agent_combo.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Фрейм для выбора даты и времени
+        datetime_frame = ttk.LabelFrame(main_frame, text="Дата и время просмотра *", padding=10)
+        datetime_frame.grid(row=3, column=0, columnspan=2, padx=5, pady=10, sticky=tk.EW)
+
+        # Текущая дата
+        now = datetime.now()
+        current_date = now.date()
+        current_time = now.time()
+
+        # Переменные для даты и времени
+        date_var = tk.StringVar(value=current_date.strftime("%Y-%m-%d"))
+        hour_var = tk.StringVar(value=str(current_time.hour).zfill(2))
+        minute_var = tk.StringVar(value=str(current_time.minute).zfill(2))
+
+        # Функция для обновления даты
+        def update_date(year, month, day):
+            date_var.set(f"{year}-{month:02d}-{day:02d}")
+            validate_future_datetime()
+
+        # Функция для отображения календаря
+        def show_calendar():
+            calendar_dialog = tk.Toplevel(dialog)
+            calendar_dialog.title("Выбор даты")
+            calendar_dialog.geometry("300x300")
+            calendar_dialog.transient(dialog)
+            calendar_dialog.grab_set()
+
+            # Центрируем
+            x = dialog.winfo_x() + (dialog.winfo_width() - 300) // 2
+            y = dialog.winfo_y() + (dialog.winfo_height() - 300) // 2
+            calendar_dialog.geometry(f"+{x}+{y}")
+
+            # Текущая дата
+            current = datetime.now()
+            year = current.year
+            month = current.month
+
+            # Фрейм для управления месяцем/годом
+            control_frame = ttk.Frame(calendar_dialog)
+            control_frame.pack(pady=10)
+
+            # Кнопки навигации
+            def prev_month():
+                nonlocal month, year
+                month -= 1
+                if month < 1:
+                    month = 12
+                    year -= 1
+                update_calendar()
+
+            def next_month():
+                nonlocal month, year
+                month += 1
+                if month > 12:
+                    month = 1
+                    year += 1
+                update_calendar()
+
+            ttk.Button(control_frame, text="◀", width=3, command=prev_month).pack(side=tk.LEFT, padx=5)
+            month_year_label = ttk.Label(control_frame, text="", font=('Arial', 10, 'bold'))
+            month_year_label.pack(side=tk.LEFT, padx=10)
+            ttk.Button(control_frame, text="▶", width=3, command=next_month).pack(side=tk.LEFT, padx=5)
+
+            # Фрейм для дней недели
+            days_frame = ttk.Frame(calendar_dialog)
+            days_frame.pack()
+
+            # Дни недели
+            days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+            for i, day in enumerate(days):
+                ttk.Label(days_frame, text=day, width=4, anchor='center').grid(row=0, column=i, padx=2, pady=2)
+
+            # Фрейм для дней месяца
+            days_grid_frame = ttk.Frame(calendar_dialog)
+            days_grid_frame.pack()
+
+            def update_calendar():
+                # Очищаем старые дни
+                for widget in days_grid_frame.winfo_children():
+                    widget.destroy()
+
+                # Обновляем заголовок
+                month_names = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                               'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+                month_year_label.configure(text=f"{month_names[month - 1]} {year}")
+
+                # Получаем календарь
+                cal = calendar.monthcalendar(year, month)
+
+                # Отображаем дни
+                for week_num, week in enumerate(cal):
+                    for day_num, day in enumerate(week):
+                        if day != 0:
+                            # Проверяем, не прошедшая ли это дата
+                            selected_date = datetime(year, month, day)
+                            is_past = selected_date.date() < datetime.now().date()
+
+                            if is_past:
+                                btn = ttk.Label(days_grid_frame, text=str(day), width=4,
+                                                background='#f0f0f0', foreground='gray')
+                                btn.grid(row=week_num + 1, column=day_num, padx=2, pady=2)
+                            else:
+                                btn = ttk.Button(days_grid_frame, text=str(day), width=4,
+                                                 command=lambda d=day: select_date(d))
+                                btn.grid(row=week_num + 1, column=day_num, padx=2, pady=2)
+
+            def select_date(day):
+                update_date(year, month, day)
+                calendar_dialog.destroy()
+
+            # Инициализируем календарь
+            update_calendar()
+
+        # Функция для проверки будущей даты
+        def validate_future_datetime():
+            try:
+                selected_date = datetime.strptime(date_var.get(), "%Y-%m-%d").date()
+                selected_time = datetime.strptime(f"{hour_var.get()}:{minute_var.get()}", "%H:%M").time()
+                selected_datetime = datetime.combine(selected_date, selected_time)
+
+                current_datetime = datetime.now()
+
+                if selected_datetime < current_datetime:
+                    date_label.configure(foreground='red')
+                    time_label.configure(text="Время в прошлом!", foreground='red')
+                    return False
+                else:
+                    date_label.configure(foreground='green')
+                    time_label.configure(text="Время в будущем ✓", foreground='green')
+                    return True
+            except:
+                return False
+
+        # Кнопка выбора даты
+        date_label = ttk.Label(datetime_frame, text="Дата:")
+        date_label.grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Button(datetime_frame, text="📅 Выбрать дату", command=show_calendar, width=15).grid(
+            row=0, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Поле для отображения выбранной даты
+        ttk.Label(datetime_frame, text="Выбранная дата:").grid(row=0, column=2, padx=(20, 5), pady=5, sticky=tk.W)
+        date_display = ttk.Label(datetime_frame, textvariable=date_var, font=('Arial', 10, 'bold'))
+        date_display.grid(row=0, column=3, padx=5, pady=5, sticky=tk.W)
+
+        # Выбор времени
+        ttk.Label(datetime_frame, text="Время:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+
+        time_frame = ttk.Frame(datetime_frame)
+        time_frame.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky=tk.W)
+
+        # Часы
+        hour_spinbox = tk.Spinbox(time_frame, from_=0, to=23, width=3,
+                                  textvariable=hour_var, format="%02.0f")
+        hour_spinbox.pack(side=tk.LEFT, padx=2)
+        ttk.Label(time_frame, text=":").pack(side=tk.LEFT)
+
+        # Минуты
+        minute_spinbox = tk.Spinbox(time_frame, from_=0, to=59, width=3,
+                                    textvariable=minute_var, format="%02.0f")
+        minute_spinbox.pack(side=tk.LEFT, padx=2)
+
+        # Метка проверки времени
+        time_label = ttk.Label(datetime_frame, text="")
+        time_label.grid(row=2, column=1, columnspan=3, padx=5, pady=(5, 0), sticky=tk.W)
+
+        # Кнопка для установки текущего времени
+        def set_current_time():
+            now = datetime.now()
+            hour_var.set(str(now.hour).zfill(2))
+            minute_var.set(str(now.minute).zfill(2))
+            validate_future_datetime()
+
+        ttk.Button(datetime_frame, text="🕐 Текущее время", command=set_current_time, width=15).grid(
+            row=3, column=1, padx=5, pady=10, sticky=tk.W)
+
+        # Другие поля
+        ttk.Label(main_frame, text="Статус:*", foreground='red').grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        status_var = tk.StringVar(value="scheduled")
+        status_combo = ttk.Combobox(main_frame, textvariable=status_var,
+                                    values=["scheduled", "completed", "cancelled"], state="readonly", width=35)
+        status_combo.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Отзыв клиента:").grid(row=5, column=0, padx=5, pady=5, sticky=tk.W)
+        feedback_text = tk.Text(main_frame, height=4, width=35)
+        feedback_text.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
+
+        # Функция сохранения
+        def save():
+            # Проверка обязательных полей
+            if not property_var.get():
+                messagebox.showerror("Ошибка", "Выберите объект недвижимости")
+                return
+
+            if not client_var.get():
+                messagebox.showerror("Ошибка", "Выберите клиента")
+                return
+
+            # Проверка даты и времени
+            if not validate_future_datetime():
+                messagebox.showerror("Ошибка", "Нельзя выбрать прошедшее время")
+                return
+
+            try:
+                property_id = int(property_var.get().split(" - ")[0])
+                client_id = int(client_var.get().split(" - ")[0])
+                agent_id = int(agent_var.get().split(" - ")[0]) if agent_var.get() else None
+
+                # Формируем дату-время
+                datetime_str = f"{date_var.get()} {hour_var.get()}:{minute_var.get()}"
+
+                data = (
+                    property_id,
+                    client_id,
+                    agent_id,
+                    datetime_str,
+                    status_var.get(),
+                    feedback_text.get("1.0", "end-1c").strip()
+                )
+
+                query = """
+                INSERT INTO viewings (property_id, client_id, agent_id, viewing_date, status, client_feedback)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
+
+                self.execute_query(query, data)
+                self.refresh_data()
+                dialog.destroy()
+                messagebox.showinfo("Успех", "Просмотр добавлен")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Ошибка при сохранении:\n{str(e)}")
+
+        # Привязываем проверку при изменении времени
+        hour_var.trace('w', lambda *args: validate_future_datetime())
+        minute_var.trace('w', lambda *args: validate_future_datetime())
+        date_var.trace('w', lambda *args: validate_future_datetime())
+
+        # Кнопки
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+
+        ttk.Button(button_frame, text="Сохранить", command=save, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Отмена", command=dialog.destroy, width=15).pack(side=tk.LEFT, padx=5)
+
+        # Инициализируем проверку
+        validate_future_datetime()
+
+        # Фокус
+        property_combo.focus_set()
+
+    def add_service_dialog(self, dialog):
+        """Диалог добавления услуги - адаптивный"""
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=self.padding, pady=self.padding)
+
+        # Поля формы
+        ttk.Label(main_frame, text="Название услуги:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        name_entry = ttk.Entry(main_frame, width=30)
+        name_entry.grid(row=0, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Описание:").grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        desc_entry = ttk.Entry(main_frame, width=30)
+        desc_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Цена:").grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        price_entry = ttk.Entry(main_frame, width=30)
+        price_entry.grid(row=2, column=1, padx=5, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Срок (дней):").grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        duration_entry = ttk.Entry(main_frame, width=30)
+        duration_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
+
+        def save():
+            try:
+                data = (
+                    name_entry.get(),
+                    desc_entry.get(),
+                    float(price_entry.get()) if price_entry.get() else None,
+                    int(duration_entry.get()) if duration_entry.get() else None
+                )
+
+                query = """
+                INSERT INTO services (service_name, description, standard_price, duration_days)
+                VALUES (%s, %s, %s, %s)
+                """
+
+                self.execute_query(query, data)
+                self.refresh_data()
+                dialog.destroy()
+                messagebox.showinfo("Успех", "Услуга добавлена")
+            except ValueError as e:
+                messagebox.showerror("Ошибка", "Проверьте правильность ввода числовых значений")
+            except Exception as e:
+                messagebox.showerror("Ошибка", str(e))
+
+        ttk.Button(main_frame, text="Сохранить", command=save).grid(row=4, column=0, columnspan=2, pady=20)
+
+    def search_dialog(self):
+        """Диалог поиска"""
+        if self.current_table == "reports":
+            messagebox.showinfo("Поиск", "Поиск недоступен в режиме отчетов")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Поиск")
+
+        dialog_width = min(400, self.root.winfo_width() - 100)
+        dialog_height = min(300, self.root.winfo_height() - 100)
+        dialog.geometry(f"{dialog_width}x{dialog_height}")
+
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog_width) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog_height) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        main_frame = ttk.Frame(dialog, padding=self.padding)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Поиск:").pack(anchor=tk.W)
+        search_entry = ttk.Entry(main_frame, width=30)
+        search_entry.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(main_frame, text="Искать в:").pack(anchor=tk.W)
+
+        # Определяем доступные колонки для поиска
+        if self.current_table == "employees":
+            columns = ["Имя", "Фамилия", "Телефон", "Email"]
+        elif self.current_table == "clients":
+            columns = ["Имя", "Фамилия", "Телефон", "Email", "Тип"]
+        elif self.current_table == "properties":
+            columns = ["Адрес", "Город", "Тип", "Статус"]
+        elif self.current_table == "deals":
+            columns = ["Тип"]
+        elif self.current_table == "viewings":
+            columns = ["Статус", "Отзыв"]
+        elif self.current_table == "services":
+            columns = ["Название", "Описание"]
+        else:
+            columns = []
+
+        column_var = tk.StringVar(value=columns[0] if columns else "")
+        column_combo = ttk.Combobox(main_frame, textvariable=column_var, values=columns, state="readonly")
+        column_combo.pack(fill=tk.X, pady=(0, 20))
+
+        def search():
+            search_text = search_entry.get().lower()
+            column_name = column_var.get()
+
+            if not search_text:
+                messagebox.showwarning("Внимание", "Введите текст для поиска")
+                return
+
+            # Очищаем текущее выделение
+            for item in self.tree.selection():
+                self.tree.selection_remove(item)
+
+            # Ищем совпадения
+            found_items = []
+            for item in self.tree.get_children():
+                values = self.tree.item(item)['values']
+
+                # Определяем индекс колонки для поиска
+                if column_name == "Имя":
+                    col_index = 1
+                elif column_name == "Фамилия":
+                    col_index = 2
+                elif column_name == "Телефон":
+                    col_index = 3
+                elif column_name == "Email":
+                    col_index = 4
+                elif column_name == "Тип":
+                    col_index = 5 if self.current_table == "clients" else 7 if self.current_table == "deals" else 3
+                elif column_name == "Адрес":
+                    col_index = 1
+                elif column_name == "Город":
+                    col_index = 2
+                elif column_name == "Статус":
+                    col_index = 7 if self.current_table == "properties" else 4
+                elif column_name == "Отзыв":
+                    col_index = 5
+                elif column_name == "Название":
+                    col_index = 1
+                elif column_name == "Описание":
+                    col_index = 2
+                else:
+                    col_index = 0
+
+                if col_index < len(values) and search_text in str(values[col_index]).lower():
+                    found_items.append(item)
+
+            if found_items:
+                # Выделяем найденные элементы
+                for item in found_items:
+                    self.tree.selection_add(item)
+                    self.tree.see(item)
+
+                self.status_var.set(f"Найдено записей: {len(found_items)}")
+                dialog.destroy()
+            else:
+                messagebox.showinfo("Результаты поиска", "Совпадений не найдено")
+
+        ttk.Button(main_frame, text="Искать", command=search).pack(pady=10)
+
+    def delete_record(self):
+        """Удалить выбранную запись"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("Внимание", "Выберите запись для удаления")
+            return
+
+        if not messagebox.askyesno("Подтверждение", "Удалить выбранную запись?"):
+            return
+
+        item = self.tree.item(selection[0])
+        record_id = item['values'][0]
+
+        try:
+            if self.current_table == "employees":
+                query = "DELETE FROM employees WHERE id = %s"
+            elif self.current_table == "clients":
+                query = "DELETE FROM clients WHERE id = %s"
+            elif self.current_table == "properties":
+                query = "DELETE FROM properties WHERE id = %s"
+            elif self.current_table == "deals":
+                query = "DELETE FROM deals WHERE id = %s"
+            elif self.current_table == "viewings":
+                query = "DELETE FROM viewings WHERE id = %s"
+            elif self.current_table == "services":
+                query = "DELETE FROM services WHERE id = %s"
+            else:
+                return
+
+            self.execute_query(query, (record_id,))
+            self.refresh_data()
+            messagebox.showinfo("Успех", "Запись удалена")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось удалить запись:\n{str(e)}")
+
+    def refresh_data(self):
+        """Обновить данные текущей таблицы"""
+        if self.current_table == "reports":
+            # Если мы в режиме отчетов, просто обновляем отчеты
+            self.show_reports()
+        else:
+            # Для всех других таблиц показываем Treeview
+            if hasattr(self, 'report_frame'):
+                self.report_frame.destroy()
+                delattr(self, 'report_frame')
+
+            self.tree_frame.grid()
+
+            # Обновляем данные текущей таблицы
+            if self.current_table == "employees":
+                self.show_employees()
+            elif self.current_table == "clients":
+                self.show_clients()
+            elif self.current_table == "properties":
+                self.show_properties()
+            elif self.current_table == "deals":
+                self.show_deals()
+            elif self.current_table == "viewings":
+                self.show_viewings()
+            elif self.current_table == "services":
+                self.show_services()
+
+    def __del__(self):
+        """Закрыть соединение с БД при завершении"""
+        if self.conn:
+            self.conn.close()
+
+    def edit_employee_dialog(self, dialog, record_id, values):
+        pass
+
+
 def main():
-    """Основная функция"""
     root = tk.Tk()
     app = RealEstateApp(root)
-    
-    # Обработка закрытия окна
-    root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    
-    # Центрирование окна
-    root.update_idletasks()
-    width = root.winfo_width()
-    height = root.winfo_height()
-    x = (root.winfo_screenwidth() // 2) - (width // 2)
-    y = (root.winfo_screenheight() // 2) - (height // 2)
-    root.geometry(f'{width}x{height}+{x}+{y}')
-    
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
