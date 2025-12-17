@@ -388,6 +388,29 @@
 ### 4.1 Создание таблиц и индексов
 
 База данных была разработана в СУБД PostgreSQL 14.
+Создание таблиц
+```sql
+CREATE TABLE employees ( id SERIAL PRIMARY KEY, first_name VARCHAR(50) NOT NULL, last_name VARCHAR(50) NOT NULL, phone VARCHAR(20) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, hire_date DATE NOT NULL DEFAULT CURRENT_DATE, commission_rate DECIMAL(5,2) DEFAULT 2.5, is_active BOOLEAN DEFAULT TRUE );
+```
+```sql
+CREATE TABLE clients ( id SERIAL PRIMARY KEY, first_name VARCHAR(50) NOT NULL, last_name VARCHAR(50) NOT NULL, phone VARCHAR(20) NOT NULL, email VARCHAR(100), client_type VARCHAR(10) CHECK (client_type IN ('buyer', 'seller', 'both')), registration_date DATE DEFAULT CURRENT_DATE );
+```
+```sql
+CREATE TABLE properties ( id SERIAL PRIMARY KEY, address VARCHAR(200) NOT NULL, city VARCHAR(50) NOT NULL, district VARCHAR(50), property_type VARCHAR(20) CHECK (property_type IN ('apartment', 'house', 'commercial', 'land')), rooms INTEGER, total_area DECIMAL(10,2) NOT NULL, living_area DECIMAL(10,2), floor INTEGER, total_floors INTEGER, price DECIMAL(12,2) NOT NULL, status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'sold', 'rented', 'archived')), owner_id INTEGER REFERENCES clients(id) ON DELETE SET NULL, agent_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, created_date DATE DEFAULT CURRENT_DATE, description TEXT );
+```
+```sql
+CREATE TABLE deals ( id SERIAL PRIMARY KEY, property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE RESTRICT, buyer_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT, seller_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT, agent_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE RESTRICT, deal_date DATE NOT NULL DEFAULT CURRENT_DATE, deal_price DECIMAL(12,2) NOT NULL, commission_amount DECIMAL(12,2) NOT NULL, deal_type VARCHAR(10) CHECK (deal_type IN ('sale', 'rent')), payment_method VARCHAR(30), notes TEXT );
+```
+```sql
+ CREATE TABLE viewings ( id SERIAL PRIMARY KEY, property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, agent_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, viewing_date TIMESTAMP NOT NULL, status VARCHAR(20) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled')), client_feedback TEXT, agent_notes TEXT );
+```
+```sql
+CREATE TABLE services ( id SERIAL PRIMARY KEY, service_name VARCHAR(100) NOT NULL, description TEXT, standard_price DECIMAL(10,2), duration_days INTEGER );
+```
+```sql
+CREATE TABLE service_requests ( id SERIAL PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE RESTRICT, agent_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, request_date DATE DEFAULT CURRENT_DATE, completion_date DATE, status VARCHAR(20) DEFAULT 'new' CHECK (status IN ('new', 'in_progress', 'completed', 'cancelled')), actual_price DECIMAL(10,2), notes TEXT );
+```
+
 Наполнение тестовыми данными:
 ```sql
 INSERT INTO employees (first_name, last_name, phone, email, commission_rate) VALUES
