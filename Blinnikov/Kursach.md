@@ -1479,17 +1479,18 @@ INSERT INTO {table_name} VALUES ({', '.join(values)});
 
 Архитектура приложения:
 
-| photo_studio_app/
-├── photo_studio.exe                       - приложение, скомпилированное из photo_studio.py
-|    └── function
-|         ├─ login window                  - функция авторизации
-|         ├─ order dialog                  - функция создания \ редактирования заказа
-|         ├─ client dialog                 - функция работы с клиентами
-|         ├─ report dialog                 - функция формирования отчетов
-|         ├─ receipt dialog                - функция "печати" чека
-|         ├─ export                        - функция экспорта в другие файлы
-|         └─ main                          - функция запуска приложения
-└─ main_window                             - основное окно приложения
+photo_studio_app/
+├── photo_studio.exe                 - приложение, скомпилированное из photo_studio.py
+│
+└── functions                        - функциональные модули
+    ├── login_window                 - функция авторизации
+    ├── order_dialog                 - функция создания\редактирования заказа
+    ├── client_dialog                - функция работы с клиентами
+    ├── report_dialog                - функция формирования отчетов
+    ├── receipt_dialog               - функция "печати" чека
+    ├── export                       - функция экспорта в другие файлы
+    ├── main                         - функция запуска приложения
+    └── main_window                  - основное окно приложения
 
 Основные компоненты интерфейса:
 
