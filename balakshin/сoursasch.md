@@ -91,7 +91,7 @@
 
 <h2 id="введение">Введение</h2>
 
-<p>В современном образовательном процессе контроль знаний студентов является важным элементом. Система тестирования позволяет:</p>
+<p>В современном образовательном процессе контроль знаний студентов является важным элементом. Существую сторонние аналоги способные способные проверять знания учеников, но на примере ухода западных компания можно понять, что иметь свой собственный сервис точно не помешает, а также позволит расширять сервис под нужды центра. Система тестирования позволяет</p>
 <ul>
   <li>создавать и публиковать тесты;</li>
   <li>прохождение тестов студентами;</li>
@@ -325,7 +325,83 @@ CREATE TABLE student_answers (
 
 <h2 id="глава5-реализация-проекта">5. Реализация проекта в среде PostgreSQL</h2> 
 <h3 id="51-создание-таблиц">5.1. Создание таблиц</h3> 
-<p>Примеры SQL для создания таблиц приведены в разделе логической структуры (см. выше).</p> 
+<code>
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(256) NOT NULL,
+    full_name VARCHAR(200) NOT NULL,
+    role_id INTEGER REFERENCES roles(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Таблица ролей
+CREATE TABLE roles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL
+);
+
+-- Таблица курсов
+CREATE TABLE courses (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    description TEXT
+);
+
+-- Таблица групп
+CREATE TABLE groups (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    course_id INTEGER REFERENCES courses(id)
+);
+
+-- Таблица тестов
+CREATE TABLE tests (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    teacher_id INTEGER REFERENCES users(id),
+    duration_minutes INTEGER,
+    is_published BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Таблица вопросов
+CREATE TABLE questions (
+    id SERIAL PRIMARY KEY,
+    test_id INTEGER REFERENCES tests(id),
+    text TEXT NOT NULL,
+    type VARCHAR(20) CHECK (type IN ('single','multiple','text')),
+    points INTEGER DEFAULT 1
+);
+
+-- Таблица ответов
+CREATE TABLE answers (
+    id SERIAL PRIMARY KEY,
+    question_id INTEGER REFERENCES questions(id),
+    text TEXT NOT NULL,
+    is_correct BOOLEAN DEFAULT FALSE
+);
+
+-- Таблица попыток прохождения теста
+CREATE TABLE test_attempts (
+    id SERIAL PRIMARY KEY,
+    test_id INTEGER REFERENCES tests(id),
+    student_id INTEGER REFERENCES users(id),
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finished_at TIMESTAMP,
+    score NUMERIC(5,2)
+);
+
+-- Таблица ответов студента
+CREATE TABLE student_answers (
+    attempt_id INTEGER REFERENCES test_attempts(id),
+    question_id INTEGER REFERENCES questions(id),
+    answer_id INTEGER REFERENCES answers(id),
+    text_answer TEXT,
+    PRIMARY KEY (attempt_id, question_id)
+);
+</code>
 
 <h3 id="52-создание-запросов">5.2. Создание запросов</h3>
 <code>
@@ -1019,4 +1095,5 @@ export default router;
 
 
 </code>
+
 
