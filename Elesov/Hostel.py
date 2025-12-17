@@ -820,7 +820,7 @@ class HotelManagementApp:
                     print(client_id)
 
                     # Вызов процедуры продления
-                    self.cursor.execute("""CALL extension(%s, %s);""", (client_id, new_date.get_date())) #(client_id, new_date.get_date())
+                    self.cursor.execute("""CALL extension(%s, %s, %s);""", (client_id, new_date.get_date(), int(item_data[4]))) #(client_id, new_date.get_date())
 
                     # Пересчет стоимости
                     self.cursor.execute("""
