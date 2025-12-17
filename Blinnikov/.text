@@ -1,0 +1,115 @@
+Поянение некоторых моментов:
+1) ".py" - python код, из которого было скомилировано приложение с расширением .exe с помощью библиотеки "auto-py-to-exe".
+2) ".sql" - sql запросы на создание таблиц базы данных. Чуть позже в ней появятся запросы для работы с данными. 
+3) авторизация в базу данных под разными должностями производится в специальном окне программы, которое сравнивает данные из таблицы,
+пароли в которой хранятся в виде hash - данных. В базе данных так же настроены доступы.
+список пользователей базы:
+ user_id |  username  |     role      | full_name  |     created_at      |             role_description              
+---------+------------+---------------+------------+---------------------+------------------------------------------- 
+       1 | owner      | owner         | owner      | 2025-12-15 22:59:58 | Владелец - полный доступ
+       2 | admin      | administrator | admin      | 2025-12-15 22:59:58 | Администратор - управление пользователями
+       3 | worker     | worker        | worker     | 2025-12-15 22:59:58 | Работник - создание заказов
+       5 | worker1    | worker        | worker1    | 2025-12-15 23:18:36 | Работник - создание заказов
+       4 | accountant | accountant    | accountant | 2025-12-15 22:59:58 | Бухгалтер - финансовые отчеты
+---------+------------+---------------+------------+---------------------+-------------------------------------------
+
+список пользователей с доступом к базе:
+    username     |   database   |  privileges  | can_connect | can_create | can_create_temp
+-----------------+--------------+--------------+-------------+------------+-----------------
+ postgres        | photo_studio | SUPERUSER    | t           | t          | t
+ accountant_user | photo_studio | REGULAR USER | t           | f          | t
+ dba_user        | photo_studio | REGULAR USER | t           | f          | t
+ owner_user      | photo_studio | REGULAR USER | t           | f          | t
+ worker_user     | photo_studio | REGULAR USER | t           | f          | t
+
+Настройка прав для владельца:
+GRANT CONNECT ON DATABASE photo_studio TO owner_user, dba_user, accountant_user, worker_user;
+GRANT USAGE ON SCHEMA public TO owner_user, dba_user, accountant_user, worker_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO owner_user;
+GRANT TEMPORARY ON DATABASE photo_studio TO owner_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO owner_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO owner_user;
+
+Настройка прав для админа:
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO dba_user;
+GRANT INSERT, UPDATE, DELETE ON post, employee, client, payment_method, contact_method, service, order_info, orders TO dba_user;
+GRANT SELECT ON users TO dba_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dba_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO dba_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO dba_user;
+
+Настройка прав для работника:
+GRANT SELECT ON service, payment_method, client, post, employee, contact_method TO worker_user;
+GRANT SELECT, INSERT ON orders, order_info, client TO worker_user;
+GRANT UPDATE ON client TO worker_user;
+GRANT USAGE, SELECT ON orders_order_id_seq, order_info_order_info_id_seq, client_client_id_seq TO worker_user;
+
+Настройка прав для бухгалтера:
+GRANT SELECT ON orders, order_info, service, client, payment_method, employee TO accountant_user;
+GRANT SELECT ON orders_order_id_seq, order_info_order_info_id_seq TO accountant_user;
+
+итог:
+    username     | table_name |                          privileges
+-----------------+------------+---------------------------------------------------------------
+ accountant_user | client     | SELECT
+ accountant_user | orders     | SELECT
+ accountant_user | service    | SELECT
+ dba_user        | client     | UPDATE, SELECT, DELETE, INSERT
+ dba_user        | orders     | DELETE, INSERT, SELECT, UPDATE
+ dba_user        | service    | SELECT, DELETE, INSERT, UPDATE
+ dba_user        | users      | SELECT
+ owner_user      | client     | INSERT, SELECT, DELETE, UPDATE
+ owner_user      | orders     | INSERT, DELETE, UPDATE, SELECT
+ owner_user      | service    | SELECT, DELETE, INSERT, UPDATE
+ owner_user      | users      | UPDATE, INSERT, SELECT, DELETE
+ postgres        | client     | INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+ postgres        | orders     | REFERENCES, TRIGGER, INSERT, SELECT, UPDATE, DELETE, TRUNCATE
+ postgres        | service    | INSERT, TRIGGER, REFERENCES, TRUNCATE, DELETE, UPDATE, SELECT
+ postgres        | users      | DELETE, TRUNCATE, REFERENCES, TRIGGER, UPDATE, SELECT, INSERT
+ worker_user     | client     | UPDATE, SELECT, INSERT
+ worker_user     | orders     | INSERT, SELECT
+ worker_user     | service    | SELECT
+
+    grantee      |   table_name   |           privileges
+-----------------+----------------+--------------------------------
+ accountant_user | client         | SELECT
+ accountant_user | employee       | SELECT
+ accountant_user | order_info     | SELECT
+ accountant_user | orders         | SELECT
+ accountant_user | payment_method | SELECT
+ accountant_user | service        | SELECT
+ dba_user        | client         | DELETE, UPDATE, INSERT, SELECT
+ dba_user        | contact_method | INSERT, SELECT, DELETE, UPDATE
+ dba_user        | employee       | INSERT, SELECT, UPDATE, DELETE
+ dba_user        | order_info     | INSERT, SELECT, UPDATE, DELETE
+ dba_user        | orders         | UPDATE, DELETE, INSERT, SELECT
+ dba_user        | payment_method | DELETE, INSERT, SELECT, UPDATE
+ dba_user        | post           | DELETE, INSERT, SELECT, UPDATE
+ dba_user        | service        | DELETE, UPDATE, SELECT, INSERT
+ dba_user        | users          | SELECT
+ owner_user      | client         | SELECT, UPDATE, INSERT, DELETE
+ owner_user      | contact_method | UPDATE, DELETE, INSERT, SELECT
+ owner_user      | employee       | UPDATE, INSERT, SELECT, DELETE
+ owner_user      | order_info     | DELETE, INSERT, SELECT, UPDATE
+ owner_user      | orders         | INSERT, UPDATE, DELETE, SELECT
+ owner_user      | payment_method | DELETE, INSERT, UPDATE, SELECT
+ owner_user      | post           | SELECT, DELETE, UPDATE, INSERT
+ owner_user      | service        | DELETE, UPDATE, SELECT, INSERT
+ owner_user      | users          | INSERT, SELECT, UPDATE, DELETE
+ worker_user     | client         | INSERT, UPDATE, SELECT
+ worker_user     | contact_method | SELECT
+ worker_user     | employee       | SELECT
+ worker_user     | order_info     | SELECT, INSERT
+ worker_user     | orders         | SELECT, INSERT
+ worker_user     | payment_method | SELECT
+ worker_user     | post           | SELECT
+ worker_user     | service        | SELECT
+
+
+4) в самой программе функционал зависит от авторизованной роли. то есть, одна роль чисто физически не сможет воспользоваться функциями роли, права доступа которой стоят выше.
+Условно, удаление "заказов" доступно только владельцу базы (роль owner из таблицы users).
+5) в самом приложении реализована функция смены пароля для каждой записи из таблицы "users", соответсвенно, при желании "сотрудника" пароль можно поменять.
+На данный момент пароль везде admin, это сделано для удабюства тестирования. В таблице присутствуют роль "worker", а так же "worker1", для которой я намеренно указал другой пароль для проверки.
+Это означает, что при расширении штата сотрудников, их логины и пароли можно будет настраивать более гибким образом - то есть поставить "имя_фамилия - пароль".
+6) подсчет суммы покупки высчитывается так же программой. Я посчитал, что это будет быстрее. В дальнейшем это помогло мне реализовать импорт данных в формат .csv, .xlxs и .txt. Это сделано для удобства работы "бухгалтера".
+7) в программе реализована функция резервного копирования базы данных. отсюда следует, что можно выполнить загрузку базы данных из этой самой копии. 

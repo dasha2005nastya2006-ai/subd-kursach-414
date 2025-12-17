@@ -2,3 +2,120 @@
 2. создание самой БД на основе структуры
 3. Создание и проектирование структуры приложения с gui-интерфейсом (python, pycharm)
 4. реализация самого приложения
+
+
+создание базы данных
+
+create table roles (id integer primary key, name varchar(20) not null); -- таблица с должностями
+insert into roles values(1, 'администратор'), (2, 'горничная');
+
+create table workers(id integer primary key, name varchar not null, role integer, foreign key (role) references roles(id)); -- таблица с работниками
+insert into workers values(1, 'Надежда Ивановна Дурова', 1), (2, 'Татьяна Ивановна Ларина', 2);
+
+create table rooms(number varchar(3) primary key, floor integer, number_of_places integer, is_active boolean); -- таблица с номерами
+insert into rooms values('111', 1, 1, true), ('112', 1, 1, true), ('113', 1, 1, true), ('114', 1, 1, true), ('115', 1, 1, true), ('116', 1, 1, true);
+insert into rooms values('211', 2, 2, true), ('212', 2, 2, true), ('213', 2, 2, true), ('214', 2, 2, true), ('215', 2, 2, true), ('216', 2, 2, true);
+insert into rooms values('311', 3, 3, true), ('312', 3, 3, true), ('313', 3, 3, true), ('314', 3, 3, true), ('315', 3, 3, true), ('316', 3, 3, true);
+insert into rooms values('411', 4, 4, true), ('412', 4, 4, true), ('413', 4, 4, true), ('414', 4, 4, true), ('415', 4, 4, true), ('416', 4, 4, true);
+
+create table beds(id integer primary key, room_number varchar(3) not null, is_occupied boolean, price_per_night real, foreign key (room_number) references rooms(number)); -- таблица с койками
+insert into beds values(1, '111', true, 100), (2, '112', true, 100), (3, '113', true, 100), (4, '114', true, 100), (5, '115', true, 100), (6, '116', true, 100);
+
+insert into beds values(7, '211', true, 200), (8, '211', true, 200), (9, '212', true, 200), (10, '212', true, 200), (11, '213', true, 200), (12, '213', true, 200);
+insert into beds values(13, '214', true, 200), (14, '214', true, 200), (15, '215', true, 200), (16, '215', true, 200), (17, '216', true, 200), (18, '216', true, 200);
+
+insert into beds values(19, '311', true, 300), (20, '311', true, 300), (21, '311', true, 300);
+insert into beds values(22, '312', true, 300), (23, '312', true, 300), (24, '312', true, 300);
+insert into beds values(25, '313', true, 300), (26, '313', true, 300), (27, '313', true, 300);
+insert into beds values(28, '314', true, 300), (29, '314', true, 300), (30, '314', true, 300);
+insert into beds values(31, '315', true, 300), (32, '315', true, 300), (33, '315', true, 300);
+insert into beds values(34, '316', true, 300), (35, '316', true, 300), (36, '316', true, 300);
+
+insert into beds values(37, '411', true, 400), (38, '411', true, 400), (39, '411', true, 400), (40, '411', true, 400);
+insert into beds values(41, '412', true, 400), (42, '412', true, 400), (43, '412', true, 400), (44, '412', true, 400);
+insert into beds values(45, '413', true, 400), (46, '413', true, 400), (47, '413', true, 400), (48, '413', true, 400);
+insert into beds values(49, '414', true, 400), (50, '414', true, 400), (51, '414', true, 400), (52, '414', true, 400);
+insert into beds values(53, '415', true, 400), (54, '415', true, 400), (55, '415', true, 400), (56, '415', true, 400);
+insert into beds values(57, '416', true, 400), (58, '416', true, 400), (59, '416', true, 400), (60, '416', true, 400);
+
+create table clients(id integer primary key, name varchar not null, surname varchar not null, surname1 varchar, phone_number varchar(11) not null, email varchar, passport_series varchar(4) not null, passport_number varchar(6) not null); -- таблица клиентов (будет заполняться в приложении)
+
+create table reservation(date_of_checkin date, date_of_checkout date, client integer, administrator integer, bed integer, number_of_nights integer, total_price real, foreign key (client) references clients(id), foreign key (administrator) references workers(id), foreign key (bed) references beds(id)); -- история брони (будет заполняться в приложении)
+
+-- процедура, обновляющая дату выселения
+create or replace procedure extension(client_id integer, new_date date) as $$
+begin
+update reservation set date_of_checkout=new_date where client=client_id;
+end;
+$$ language plpgsql;
+
+
+-- доп. функционал
+create table schedule_of_cleaning_rooms (date_of_cleaning date not null, room_number varchar(3) not null, housemaid integer not null, foreign key (room_number) references rooms(number), foreign key (housemaid) references workers(id)); -- таблица для расписания уборок номеров (будет заполняться в приложении)
+
+
+-- представления
+create VIEW reservation_history as SELECT r.date_of_checkin, r.date_of_checkout, r.number_of_nights, r.total_price, c.id as client_id, c.name as client_name, c.surname as client_surname, c.phone_number as client_phone, w.id as admin_id, w.name as admin_name, b.id as bed_id, b.room_number, b.price_per_night as bed_price, rm.floor, rm.number_of_places FROM reservation r LEFT JOIN clients c ON r.client = c.id LEFT JOIN workers w ON r.administrator = w.id LEFT JOIN beds b ON r.bed = b.id LEFT JOIN rooms rm ON b.room_number = rm.number ORDER BY r.date_of_checkin DESC; -- представление для истории брони
+
+create VIEW current_reservations as select rh.*, CasE when rh.date_of_checkout > CURRENT_DATE THEN rh.date_of_checkout - CURRENT_DATE ELSE 0 END as nights_remaining FROM reservation_history rh where CURRENT_DATE BETWEEN rh.date_of_checkin and rh.date_of_checkout ORDER BY rh.room_number; -- представление о действующих бронях
+
+--представление для расписания уборки номеров
+CREATE VIEW cleaning_schedule_view AS
+SELECT 
+    sc.date_of_cleaning,
+    -- Информация о номере
+    sc.room_number,
+    r.floor,
+    r.number_of_places,
+    -- Информация о горничной
+    w.id as housemaid_id,
+    w.name as housemaid_name,
+    rol.name as housemaid_role,
+    -- Статус уборки (прошлая/будущая)
+    CASE 
+        WHEN sc.date_of_cleaning < CURRENT_DATE THEN 'Выполнена'
+        WHEN sc.date_of_cleaning = CURRENT_DATE THEN 'На сегодня'
+        ELSE 'Запланирована'
+    END as cleaning_status
+FROM schedule_of_cleaning_rooms sc
+LEFT JOIN rooms r ON sc.room_number = r.number
+LEFT JOIN workers w ON sc.housemaid = w.id
+LEFT JOIN roles rol ON w.role = rol.id
+ORDER BY sc.date_of_cleaning, r.floor, sc.room_number;
+
+-- представление о работниках с полной информацией о должности
+CREATE VIEW workers_info AS
+SELECT 
+    w.id,
+    w.name as full_name,
+    -- Разделение имени на части (если нужно)
+    split_part(w.name, ' ', 1) as first_name,
+    split_part(w.name, ' ', 2) as middle_name,
+    split_part(w.name, ' ', 3) as last_name,
+    r.id as role_id,
+    r.name as role_name,
+    -- Статус активности (можно добавить позже поле is_active в таблицу workers)
+    'Активен' as status -- временная заглушка
+FROM workers w
+LEFT JOIN roles r ON w.role = r.id
+ORDER BY r.id, w.name;
+
+-- Представление для свободных коек на определенную дату
+CREATE OR REPLACE VIEW available_beds_today AS
+SELECT 
+    b.id as bed_id,
+    b.room_number,
+    b.price_per_night,
+    r.floor,
+    r.number_of_places,
+    r.is_active as room_active
+FROM beds b
+LEFT JOIN rooms r ON b.room_number = r.number
+WHERE b.id NOT IN (
+    SELECT bed 
+    FROM reservation 
+    WHERE CURRENT_DATE BETWEEN date_of_checkin AND date_of_checkout
+)
+AND b.is_occupied = false
+AND r.is_active = true
+ORDER BY r.floor, b.room_number, b.id;
