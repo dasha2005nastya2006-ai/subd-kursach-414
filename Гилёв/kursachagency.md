@@ -503,8 +503,8 @@ pg_dump -U gillop gillop > gillopdb_backup.sql
 ```
 **Затем были созданы бэкапы отдельных таблиц:**
 ```sql
-pg_dump -t reservation elesov > /tmp/reservationhostel.dump;  
-pg_dump -t schedule_of_cleaning_rooms elesov > /tmp/ schedule_of_cleaning_rooms hostel.dump;
+pg_dump -t deals gillop > /tmp/deals.dump;  
+pg_dump -t employees gillop > /tmp/ employees agensy.dump;
 ``` 
 Также был создана копия python-файла, отвечавшего за графический пользовательский интерфейс.
 
