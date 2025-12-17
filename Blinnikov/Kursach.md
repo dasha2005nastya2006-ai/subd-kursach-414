@@ -1356,3 +1356,516 @@ COMMIT;
 
 
 # <p align="center"> Глава 5 </p>
+
+## 5. Реализация проекта в среде конкретного СУБД
+
+### 5.1. Создание таблиц
+
+```sql
+CREATE TABLE post (post_id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+```
+
+```sql
+CREATE TABLE employee (employee_id SERIAL PRIMARY KEY, surname TEXT NOT NULL, name TEXT NOT NULL, patronymic text, post_id INT REFERENCES post(post_id), phone VARCHAR(255));
+```
+
+```sql
+CREATE TABLE client (client_id SERIAL PRIMARY KEY, surname TEXT, name TEXT NOT NULL, patronymic text, phone VARCHAR(255), email TEXT);
+```
+
+```sql
+CREATE TABLE payment_method (payment_method_id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+```
+
+```sql
+CREATE TABLE contact_method (contact_method_id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+```
+
+```sql
+CREATE TABLE service (service_id SERIAL PRIMARY KEY, name TEXT NOT NULL, service_price NUMERIC(10, 2) NOT NULL);
+```
+
+```sql
+CREATE TABLE order_info (order_info_id SERIAL PRIMARY KEY, order_id INT, service_id INT REFERENCES service(service_id), quantity INT);
+```
+
+```sql
+CREATE TABLE orders (order_id SERIAL PRIMARY KEY, client_id INT REFERENCES client(client_id), payment_method_id INT REFERENCES payment_method(payment_method_id), date TIMESTAMP DEFAULT NOW(), total_sum NUMERIC(10, 2), contact_method_id INT REFERENCES contact_method(contact_method_id));
+```
+
+```sql
+CREATE TABLE users (user_id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('owner', 'administrator', 'worker', 'accountant')), name TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+```
+
+### 5.2. Создание запросов
+
+```sql
+SELECT COUNT(*) as orders_count, SUM(total_sum) as total_revenue, COUNT(DISTINCT client_id) as unique_clients FROM orders WHERE date::date = %s
+```
+
+```sql
+SELECT s.name as service_name, SUM(oi.quantity) as total_quantity, SUM(oi.quantity * s.service_price) as service_revenue
+       FROM orders o
+       JOIN order_info oi ON o.order_id = oi.order_id
+       JOIN service s ON oi.service_id = s.service_id
+       WHERE o.date::date = %s
+       GROUP BY s.service_id, s.name
+       ORDER BY service_revenue DESC
+```
+
+```sql
+SELECT o.order_id, c.surname || ' ' || c.name as client_name, o.total_sum, pm.name as payment_method, cm.name as contact_method, o.date
+       FROM orders o
+       JOIN client c ON o.client_id = c.client_id
+       JOIN payment_method pm ON o.payment_method_id = pm.payment_method_id
+       JOIN contact_method cm ON o.contact_method_id = cm.contact_method_id
+       WHERE o.date::date = %s
+       ORDER BY o.date
+```
+
+```sql
+SELECT o.order_id, c.surname || ' ' || c.name as client, s.name as service, oi.quantity, s.service_price, (oi.quantity * s.service_price) as total, pm.name as payment_method, cm.name as contact_method, o.date
+       FROM orders o
+       JOIN client c ON o.client_id = c.client_id
+       JOIN order_info oi ON o.order_id = oi.order_id
+       JOIN service s ON oi.service_id = s.service_id
+       JOIN payment_method pm ON o.payment_method_id = pm.payment_method_id
+       JOIN contact_method cm ON o.contact_method_id = cm.contact_method_id
+       WHERE o.date::date BETWEEN %s AND %s
+       ORDER BY o.date DESC
+```
+
+```sql
+SELECT s.name, COUNT(*), SUM(oi.quantity * s.service_price)
+       FROM order_info oi
+       JOIN service s ON oi.service_id = s.service_id
+       GROUP BY s.service_id, s.name
+       ORDER BY SUM(oi.quantity * s.service_price) DESC
+       LIMIT 10
+```
+
+```sql
+SELECT c.surname || ' ' || c.name, COUNT(*), SUM(o.total_sum)
+       FROM orders o
+       JOIN client c ON o.client_id = c.client_id
+       GROUP BY c.client_id, c.surname, c.name
+       ORDER BY SUM(o.total_sum) DESC
+       LIMIT 10
+```
+
+```sql
+SELECT service_id, name, service_price FROM service WHERE service_id = %s
+SELECT surname, name, patronymic, phone, email FROM client WHERE client_id = %s
+SELECT name FROM payment_method WHERE payment_method_id = %s
+SELECT name FROM contact_method WHERE contact_method_id = %s
+SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}'
+```
+
+```sql
+SELECT COUNT(*) FROM orders
+SELECT SUM(total_sum) FROM orders
+SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
+
+```
+
+```sql
+INSERT INTO orders (client_id, payment_method_id, contact_method_id, total_sum, date) VALUES (%s, %s, %s, %s, NOW()) RETURNING order_id;
+INSERT INTO order_info (order_id, service_id, quantity) VALUES (%s, %s, %s);
+INSERT INTO users (username, password_hash, role, name) VALUES (%s, %s, %s, %s);
+INSERT INTO {table_name} VALUES ({', '.join(values)});
+```
+
+### 5.3. Разработка интерфейса
+
+Архитектура приложения:
+
+photo_studio_app/
+├── photo_studio.exe                       - приложение, скомпилированное из photo_studio.py
+|    └── function
+|         ├─ login window                  - функция авторизации
+|         ├─ order dialog                  - функция создания \ редактирования заказа
+|         ├─ client dialog                 - функция работы с клиентами
+|         ├─ report dialog                 - функция формирования отчетов
+|         ├─ receipt dialog                - функция "печати" чека
+|         ├─ export                        - функция экспорта в другие файлы
+|         └─ main                          - функция запуска приложения
+└─ main_window                             - основное окно приложения
+
+Основные компоненты интерфейса:
+
+1. Окно авторизации (LoginWindow):
+
+- Поля для ввода логина и пароля
+
+- Валидация учетных данных через users таблицу
+
+- Запоминание последнего пользователя (опционально)
+
+2. Главное окно (MainWindow):
+
+- Меню с разделами: Файл, Данные, Отчеты, Администрирование
+
+- Панель вкладок, адаптирующаяся под роль пользователя
+
+- Статусная строка с информацией о пользователе и подключении
+
+3. Вкладка "Клиенты":
+
+- Таблица со списком клиентов с сортировкой и фильтрацией
+
+- Кнопки: Добавить, Редактировать, Удалить
+
+4. Вкладка "Заказы":
+
+- Таблица текущих заказов
+
+- Форма создания нового заказа с "корзиной" услуг
+
+5. Вкладка "Услуги":
+
+- Редактируемый прайс-лист
+
+- Возможность добавления/удаления/изменения услуг
+
+6. Вкладка "Отчеты":
+
+- Форма выбора периода для отчетов
+
+- Предпросмотр отчетов в табличном виде
+
+- Кнопки экспорта в *CSV/Excel/PDF*
+
+7. Диалог "Чек":
+
+- Предпросмотр чека в формате для печати
+
+- Сохранение в *CSV/TXT*
+
+
+### 5.4. Назначение прав доступа
+
+```sql
+GRANT CONNECT ON DATABASE photo_studio TO owner_user, dba_user, accountant_user, worker_user;
+```
+```sql
+GRANT USAGE ON SCHEMA public TO owner_user, dba_user, accountant_user, worker_user;
+```
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO owner_user;
+```
+```sql
+GRANT TEMPORARY ON DATABASE photo_studio TO owner_user;
+```
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO owner_user;
+```
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO owner_user;
+```
+```sql
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO dba_user;
+```
+```sql
+GRANT INSERT, UPDATE, DELETE ON post, employee, client, payment_method, contact_method, service, order_info, orders TO dba_user;
+```
+```sql
+GRANT SELECT ON users TO dba_user;
+```
+```sql
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dba_user;
+```
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO dba_user;
+```
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO dba_user;
+```
+```sql
+GRANT SELECT ON service, payment_method, client, post, employee, contact_method TO worker_user;
+```
+```sql
+GRANT SELECT, INSERT ON orders, order_info, client TO worker_user;
+```
+```sql
+GRANT UPDATE ON client TO worker_user;
+```
+```sql
+GRANT USAGE, SELECT ON orders_order_id_seq, order_info_order_info_id_seq, client_client_id_seq TO worker_user;
+```
+```sql
+GRANT SELECT ON orders, order_info, service, client, payment_method, employee TO accountant_user;
+```
+```sql
+GRANT SELECT ON orders_order_id_seq, order_info_order_info_id_seq TO accountant_user;
+```
+
+
+### 5.5. Создание индексов
+```sql
+CREATE INDEX idx_orders_date_total ON orders(order_date, total_sum);
+```
+
+```sql
+CREATE INDEX idx_service_name ON service(name);
+CREATE INDEX idx_service_price ON service(service_price);
+CREATE INDEX idx_service_active ON service(service_id) WHERE is_active = TRUE;
+```
+
+```sql
+CREATE INDEX idx_employee_name ON employee(surname, name);
+CREATE INDEX idx_employee_post ON employee(post_id);
+CREATE INDEX idx_employee_active ON employee(employee_id) WHERE is_active = TRUE;
+```
+
+```sql
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_active ON users(user_id) WHERE is_active = TRUE;
+```
+
+```sql
+CREATE INDEX idx_audit_changed_at ON audit_log(changed_at DESC);
+CREATE INDEX idx_audit_table_operation ON audit_log(table_name, operation);
+```
+
+### 5.6. Разработка стратегии резервного копирования баз данных
+
+Функция для создания полного бэкапа:
+```sql
+CREATE OR REPLACE FUNCTION create_full_backup()
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    backup_file TEXT;
+    backup_path TEXT := '/backup/full/';
+    timestamp_str TEXT := TO_CHAR(CURRENT_TIMESTAMP, 'YYYYMMDD_HH24MISS');
+BEGIN
+    backup_file := backup_path || 'photo_studio_full_' || timestamp_str || '.dump';
+    INSERT INTO backup_log (backup_type, filename, size_mb, status)
+    VALUES ('full', backup_file, NULL, 'started');
+    RETURN backup_file;
+END;
+$$;
+```
+
+Функция для создания инкрементального бэкапа:
+```sql
+CREATE OR REPLACE FUNCTION create_incremental_backup()
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    backup_file TEXT;
+    backup_path TEXT := '/backup/incremental/';
+    timestamp_str TEXT := TO_CHAR(CURRENT_TIMESTAMP, 'YYYYMMDD_HH24MISS');
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM backup_log 
+        WHERE backup_type = 'incremental' 
+        AND created_at > CURRENT_DATE - INTERVAL '1 day'
+        AND status = 'completed'
+    ) THEN
+        backup_file := backup_path || 'photo_studio_inc_' || timestamp_str || '.dump';
+        INSERT INTO backup_log (backup_type, filename, size_mb, status)
+        VALUES ('incremental', backup_file, NULL, 'started');
+        RETURN backup_file;
+    ELSE
+        RETURN NULL;
+    END IF;
+END;
+$$;
+```
+
+Функция для получения последнего успешного бэкапа:
+```sql
+CREATE OR REPLACE FUNCTION get_latest_backup(backup_type_param VARCHAR DEFAULT 'full')
+RETURNS TABLE (
+    backup_id INTEGER,
+    filename TEXT,
+    start_time TIMESTAMP,
+    size_mb NUMERIC(10,2)
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        bl.backup_id,
+        bl.filename,
+        bl.start_time,
+        bl.size_mb
+    FROM backup_log bl
+    WHERE bl.backup_type = backup_type_param
+        AND bl.status = 'completed'
+    ORDER BY bl.start_time DESC
+    LIMIT 1;
+END;
+$$;
+```
+
+Функция для проверки целостности бэкапа:
+```sql
+CREATE OR REPLACE FUNCTION verify_backup(backup_id_param INTEGER)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    backup_file TEXT;
+    is_valid BOOLEAN := FALSE;
+BEGIN
+    SELECT filename INTO backup_file
+    FROM backup_log
+    WHERE backup_id = backup_id_param;
+    IF backup_file IS NULL THEN
+        RAISE EXCEPTION 'Backup not found: %', backup_id_param;
+    END IF;
+    UPDATE backup_log 
+    SET status = 'verified',
+        checksum = MD5(backup_file) -- упрощенный пример
+    WHERE backup_id = backup_id_param;
+    RETURN is_valid;
+END;
+$$;
+```
+
+### 5.7. Разработка стратегии защиты баз данных и хранения информации средствами СУБД (настройка ролей и обеспечение безопасности на уровне строк)
+
+```sql
+CREATE SCHEMA config;
+CREATE SCHEMA data;
+CREATE SCHEMA reports;
+CREATE SCHEMA audit;
+```
+
+```sql
+ALTER TABLE post SET SCHEMA config;
+ALTER TABLE employee SET SCHEMA data;
+ALTER TABLE client SET SCHEMA data;
+ALTER TABLE payment_method SET SCHEMA config;
+ALTER TABLE contact_method SET SCHEMA config;
+ALTER TABLE service SET SCHEMA config;
+ALTER TABLE orders SET SCHEMA data;
+ALTER TABLE order_info SET SCHEMA data;
+ALTER TABLE users SET SCHEMA security;
+ALTER TABLE audit_log SET SCHEMA audit;
+ALTER TABLE backup_log SET SCHEMA audit;
+```
+
+
+### 5.8. Разработка API, реализующего работу с базой данных внешнего приложения
+
+```python
+class DatabaseManager:
+    def __init__(self):
+        self.connection = None
+        self.current_user = None
+        self.current_role = None
+
+    def connect(self):
+        try:
+            self.connection = psycopg2.connect(
+                database="photo_studio",
+                user="postgres",
+                password="pgadmin",
+                host="localhost",
+                port="5432"
+            )
+            return True
+        except Exception as e:
+            QMessageBox.critical(None, "Ошибка подключения", f"Не удалось подключиться к базе данных:\n{str(e)}")
+            return False
+
+    def login(self, username, password):
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                SELECT user_id, username, password_hash, role, name 
+                FROM users 
+                WHERE username = %s
+            """, (username,))
+            user_data = cursor.fetchone()
+            cursor.close()
+            if user_data:
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                if user_data[2] == password_hash:
+                    self.current_user = {
+                        'id': user_data[0],
+                        'username': user_data[1],
+                        'role': user_data[3],
+                        'name': user_data[4]
+                    }
+                    self.current_role = user_data[3]
+                    return True
+        except Exception as e:
+            print(f"Ошибка при входе: {e}")
+        return False
+```
+
+```python
+class LoginWindow(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.db_manager = DatabaseManager()
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle('Вход в систему - Фотостудия')
+        self.setFixedSize(300, 200)
+        layout = QVBoxLayout()
+        title_label = QLabel('ФОТОСТУДИЯ')
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 20px;")
+        form_layout = QFormLayout()
+        self.username_input = QLineEdit()
+        self.username_input.setPlaceholderText('Введите логин')
+        self.password_input = QLineEdit()
+        self.password_input.setPlaceholderText('Введите пароль')
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        form_layout.addRow('Логин:', self.username_input)
+        form_layout.addRow('Пароль:', self.password_input)
+        button_layout = QHBoxLayout()
+        self.login_button = QPushButton('Войти')
+        self.login_button.clicked.connect(self.attempt_login)
+        self.cancel_button = QPushButton('Выход')
+        self.cancel_button.clicked.connect(self.close)
+        button_layout.addWidget(self.login_button)
+        button_layout.addWidget(self.cancel_button)
+        layout.addWidget(title_label)
+        layout.addLayout(form_layout)
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+    def attempt_login(self):
+        username = self.username_input.text()
+        password = self.password_input.text()
+        if not username or not password:
+            QMessageBox.warning(self, 'Ошибка', 'Введите логин и пароль')
+            return
+        if not self.db_manager.connect():
+            return
+        if self.db_manager.login(username, password):
+            self.accept()
+        else:
+            QMessageBox.critical(self, 'Ошибка', 'Неверный логин или пароль')
+```
+
+```python
+def main():
+    app = QApplication(sys.argv)
+    login_window = LoginWindow()
+    if login_window.exec() == QDialog.DialogCode.Accepted:
+        main_window = MainWindow(login_window.db_manager)
+        main_window.show()
+        sys.exit(app.exec())
+    else:
+        sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()
+```
+
+
+
+
