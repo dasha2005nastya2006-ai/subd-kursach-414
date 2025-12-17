@@ -165,7 +165,8 @@
   - **Товар — Позиция (1:M):** Товар фигурирует во множестве накладных.
 
 4.	**Построение концептуальной модели.**
-    *(Здесь место для ER-диаграммы)*
+    *<img width="1046" height="832" alt="{F298BBB3-E6B5-42DA-B096-E7D53F2805AD}" src="https://github.com/user-attachments/assets/39a6addc-2854-411f-989a-a1274ac0a52e" />
+*
 
 #### <a id="logical_structure">Логическая структура базы данных</a>
 Логическая структура представляет собой детализированное описание таблиц, приведенных к 3-й нормальной форме (3NF).
@@ -305,48 +306,64 @@ CREATE TABLE products (
     LEFT JOIN manufacturers m ON p.manufacturer_id = m.manufacturer_id;
     ```
 
-3.  **Хранимые процедуры и триггеры:**
-    Ключевой элемент автоматизации — триггер пересчета остатков. Он гарантирует согласованность данных между журналом операций и таблицей товаров.
-    
-    ```sql
-    CREATE OR REPLACE FUNCTION update_stock_on_movement() RETURNS TRIGGER AS $$
-    DECLARE op_type VARCHAR(10);
-    BEGIN
-        SELECT operation_type INTO op_type FROM stock_movements WHERE movement_id = NEW.movement_id;
-        
-        IF op_type = 'in' THEN
-            UPDATE products SET stock_quantity = stock_quantity + NEW.quantity WHERE product_id = NEW.product_id;
-        ELSIF op_type IN ('out', 'writeoff') THEN
-            IF (SELECT stock_quantity FROM products WHERE product_id = NEW.product_id) < NEW.quantity THEN
-                RAISE EXCEPTION 'Недостаточно товара!';
-            END IF;
-            UPDATE products SET stock_quantity = stock_quantity - NEW.quantity WHERE product_id = NEW.product_id;
-        END IF;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    
-    CREATE TRIGGER trg_update_stock AFTER INSERT ON movement_items
-    FOR EACH ROW EXECUTE FUNCTION update_stock_on_movement();
-    ```
 
-4.  **Хранимые процедуры для добавления данных (API БД):**
-    Для упрощения работы клиентского приложения созданы обертки над `INSERT`.
-    
-    *Процедура добавления нового товара:*
-    ```sql
-    CREATE OR REPLACE PROCEDURE pr_add_product(
-        _part_number varchar, _name varchar, _price numeric, _loc varchar
-    ) LANGUAGE plpgsql AS $$
-    BEGIN
-        INSERT INTO products (part_number, name, price, location_code)
-        VALUES (_part_number, _name, _price, _loc);
-    END; $$;
-    ```
+**3. Разработка API базы данных (Хранимые процедуры)**
 
-5.  **Назначение прав доступа:**
-    *   **Роль `storekeeper`:** Разрешен `SELECT` ко всем таблицам, `INSERT` в таблицы движений.
-    *   **Роль `manager`:** Полный доступ к справочникам и отчетам.
+Для обеспечения безопасности и сокрытия внутренней структуры базы данных от клиентского приложения был реализован слой серверного API. Клиентское приложение не выполняет прямых команд `INSERT` или `UPDATE` к таблицам, а обращается к хранимым процедурам.
+
+*Процедура регистрации складской операции:*
+Данная процедура инкапсулирует логику создания документа. Приложению не нужно знать, что накладная состоит из двух таблиц (`stock_movements` и `movement_items`) и что нужно искать текущую цену. Всё это делает сервер.
+
+```sql
+CREATE OR REPLACE PROCEDURE pr_register_operation(
+    _product_id INT,
+    _quantity INT,
+    _op_type VARCHAR,
+    _contractor_id INT
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    _mov_id INT;
+    _current_price NUMERIC;
+BEGIN
+    -- 1. Получаем текущую цену товара (логика на сервере)
+    SELECT price INTO _current_price FROM products WHERE product_id = _product_id;
+    
+    IF _current_price IS NULL THEN 
+        RAISE EXCEPTION 'Товар с ID % не найден', _product_id; 
+    END IF;
+
+    -- 2. Создаем "шапку" документа
+    INSERT INTO stock_movements (operation_type, contractor_id)
+    VALUES (_op_type, _contractor_id)
+    RETURNING movement_id INTO _mov_id;
+
+    -- 3. Создаем позицию (цену берем из базы, а не от клиента)
+    INSERT INTO movement_items (movement_id, product_id, quantity, price)
+    VALUES (_mov_id, _product_id, _quantity, _current_price);
+END;
+$$;
+```
+
+*Процедура добавления нового товара:*
+```sql
+CREATE OR REPLACE PROCEDURE pr_add_product(
+    _part_number VARCHAR, 
+    _name VARCHAR, 
+    _price NUMERIC, 
+    _location VARCHAR
+) 
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO products (part_number, name, price, location_code)
+    VALUES (_part_number, _name, _price, _location);
+END; 
+$$;
+```
+
+**4. Назначение прав доступа**
+Использование процедур позволяет реализовать принцип минимальных привилегий. Пользователю базы данных даются права **только** на запуск процедур (`EXECUTE`) и чтение представлений (`SELECT` на View), но закрывается прямой доступ к таблицам. Это защищает структуру БД от изменений и несанкционированного доступа.
+
 
 #### <a id="client_app">Разработка клиентского приложения</a>
 
@@ -358,6 +375,49 @@ CREATE TABLE products (
 3.  **Обработка ошибок:** Если БД возвращает ошибку (например, нарушение `CHECK` при попытке уйти в минус), приложение выводит понятное сообщение пользователю.
 
 *(Код приложения представлен в Приложении Б).*
+
+
+
+#### <a id="client_app">1.6. Разработка и демонстрация интерфейса клиентского приложения</a>
+
+Для обеспечения удобного взаимодействия персонала с разработанной базой данных было создано графическое приложение «АРМ Кладовщика». Интерфейс реализован с использованием библиотеки `tkinter`, что обеспечивает нативность отображения элементов управления в ОС Windows.
+
+**Главное окно приложения**
+При запуске программы открывается вкладка «Справочник товаров / Остатки». Основную часть экрана занимает таблица, отображающая данные из представления `v_warehouse_stock`.
+В верхней части расположена панель инструментов, предоставляющая доступ к основным функциям (CRUD):
+*   **Добавить товар:** Открывает модальное окно для ввода данных о новой номенклатуре.
+*   **Изменить/Удалить:** Позволяет редактировать или удалять выбранные записи (с проверкой ссылочной целостности).
+*   **Поиск:** Фильтрация таблицы по артикулу или названию.
+
+*Визуализация главного окна с таблицей остатков представлена на Рисунке 1.*
+
+<img width="1252" height="852" alt="{7D8FD92C-C20D-4108-9992-417B0516BE07}" src="https://github.com/user-attachments/assets/b9c6faf3-ae57-44cd-a37a-fd606bfcf387" />
+
+*Рисунок 1. Главное окно приложения: просмотр остатков и панель управления.*
+
+**Оформление складских операций**
+Вторая вкладка приложения предназначена для регистрации движения товаров. Интерфейс спроектирован так, чтобы минимизировать ошибки ввода.
+Пользователь заполняет поля:
+1.  **Артикул:** Идентификатор товара.
+2.  **Количество:** Число единиц.
+3.  **Тип операции:** Выбор из списка (Приход, Расход, Списание).
+
+При нажатии кнопки «Провести документ» приложение отправляет транзакционный запрос к БД. В случае успеха выводится сообщение, а остатки обновляются автоматически благодаря триггерам PostgreSQL.
+
+*Интерфейс модуля оформления операций представлен на Рисунке 2.*
+
+
+<img width="1251" height="848" alt="{FB3A7B29-5882-4E78-A335-75B11C60B312}" src="https://github.com/user-attachments/assets/af645a16-a424-4eff-ac2a-f266ba72ddb1" />
+
+
+**Добавление новой номенклатуры**
+Для ввода новых позиций используется отдельное модальное окно. Это предотвращает случайное изменение данных в основной таблице и позволяет сосредоточиться на заполнении карточки товара.
+
+<img width="500" height="601" alt="{F4035AAD-C1C9-49DE-BF81-A058730FABF4}" src="https://github.com/user-attachments/assets/4dd76897-722f-4f70-a0d3-01fb2c94aa04" />
+
+*Рисунок 3. Форма создания новой карточки товара.*
+
+Разработанный интерфейс полностью удовлетворяет требованиям к эргономике и функциональности, обеспечивая доступ ко всем возможностям спроектированной базы данных.
 
 ## <a id="conclusion">Заключение</a>
 
@@ -463,6 +523,53 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_update_stock
 AFTER INSERT ON movement_items
 FOR EACH ROW EXECUTE FUNCTION update_stock_on_movement();
+
+-- ==========================================
+-- API БАЗЫ ДАННЫХ (ПРОЦЕДУРЫ)
+-- ==========================================
+
+-- 1. Процедура проведения операции (Приход/Расход)
+CREATE OR REPLACE PROCEDURE pr_register_operation(
+    _product_id INT,
+    _quantity INT,
+    _op_type VARCHAR,
+    _contractor_id INT
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    _mov_id INT;
+    _current_price NUMERIC;
+BEGIN
+    -- Проверка существования товара
+    SELECT price INTO _current_price FROM products WHERE product_id = _product_id;
+    IF _current_price IS NULL THEN 
+        RAISE EXCEPTION 'Товар не найден'; 
+    END IF;
+
+    -- Создание движения
+    INSERT INTO stock_movements (operation_type, contractor_id)
+    VALUES (_op_type, _contractor_id)
+    RETURNING movement_id INTO _mov_id;
+
+    -- Добавление позиции
+    INSERT INTO movement_items (movement_id, product_id, quantity, price)
+    VALUES (_mov_id, _product_id, _quantity, _current_price);
+END;
+$$;
+
+-- 2. Процедура создания товара
+CREATE OR REPLACE PROCEDURE pr_add_product(
+    _part_number VARCHAR, 
+    _name VARCHAR, 
+    _price NUMERIC, 
+    _location VARCHAR
+) 
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO products (part_number, name, price, location_code)
+    VALUES (_part_number, _name, _price, _location);
+END; 
+$$;
 ```
 
 #### Приложение Б: Исходный код приложения (Python)
@@ -473,84 +580,221 @@ from tkinter import ttk, messagebox
 import psycopg2
 from psycopg2 import Error
 
+# =============================================================================
+# КОНФИГУРАЦИЯ ПОДКЛЮЧЕНИЯ
+# =============================================================================
+# Параметры для соединения с локальной базой данных PostgreSQL.
+# В реальном проекте эти данные лучше выносить в отдельный файл .env
 DB_CONFIG = {
     "host": "localhost",
-    "user": "postgres",
-    "password": "YOUR_PASSWORD", 
-    "database": "autoparts_db"
+    "user": "postgres",       # Стандартный пользователь Postgres
+    "password": "YOUR_PASSWORD", # <-- ВАЖНО: Замените на ваш пароль от БД
+    "database": "autoparts_db" # Имя созданной базы данных
 }
 
 class WarehouseApp:
+    """
+    Главный класс графического приложения (GUI).
+    Реализует интерфейс для работы кладовщика.
+    """
     def __init__(self, root):
         self.root = root
-        self.root.title("АРМ Склад Автотоваров")
-        self.root.geometry("900x600")
+        self.root.title("АРМ Склад Автотоваров (API Client)")
+        self.root.geometry("950x600") # Размер окна при запуске
+        
+        # Инициализация переменной подключения
         self.conn = None
-        if not self.connect_db(): root.destroy(); return
+        
+        # Попытка подключения при старте
+        if not self.connect_db():
+            # Если база недоступна, закрываем приложение
+            root.destroy()
+            return
 
+        # Настройка вкладок (TabControl)
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
+
+        # --- Вкладка 1: Просмотр остатков ---
         self.tab_stock = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_stock, text="Складские остатки")
         self.setup_stock_tab()
+
+        # --- Вкладка 2: Операции ---
         self.tab_ops = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_ops, text="Операции")
         self.setup_ops_tab()
+        
+        # Загрузка данных сразу после запуска
         self.refresh_stock()
 
     def connect_db(self):
+        """
+        Устанавливает соединение с СУБД PostgreSQL.
+        Использует библиотеку psycopg2.
+        """
         try:
+            # Распаковка словаря DB_CONFIG и соединение
             self.conn = psycopg2.connect(**DB_CONFIG)
             return True
         except Exception as e:
-            messagebox.showerror("Ошибка", str(e))
+            # Вывод окна с ошибкой, если сервер недоступен или пароль неверен
+            messagebox.showerror("Критическая ошибка подключения", str(e))
             return False
 
     def setup_stock_tab(self):
-        ttk.Button(self.tab_stock, text="Обновить", command=self.refresh_stock).pack(pady=10)
-        cols = ("art", "name", "loc", "qty", "price")
+        """
+        Настройка интерфейса первой вкладки (Таблица остатков).
+        """
+        # Панель инструментов (кнопки сверху)
+        toolbar = ttk.Frame(self.tab_stock)
+        toolbar.pack(fill=tk.X, pady=5)
+        
+        # Кнопка обновления данных вручную
+        ttk.Button(toolbar, text="Обновить", command=self.refresh_stock).pack(side=tk.LEFT, padx=5)
+        # Кнопка вызова окна добавления нового товара
+        ttk.Button(toolbar, text="Новый товар", command=self.open_add_product_window).pack(side=tk.LEFT, padx=5)
+
+        # Настройка таблицы (Treeview)
+        # columns - внутренние имена колонок
+        cols = ("art", "brand", "name", "qty", "price", "sum")
         self.tree = ttk.Treeview(self.tab_stock, columns=cols, show="headings")
-        for c, h in zip(cols, ["Артикул", "Название", "Ячейка", "Остаток", "Цена"]):
-            self.tree.heading(c, text=h)
+        
+        # Настройка заголовков таблицы (то, что видит пользователь)
+        headers = ["Артикул", "Бренд", "Наименование", "Остаток", "Цена", "Сумма"]
+        for col, h in zip(cols, headers):
+            self.tree.heading(col, text=h)
+            self.tree.column(col, width=100) # Ширина колонок по умолчанию
+            
+        # Размещение таблицы с растягиванием на все окно
         self.tree.pack(expand=True, fill='both')
 
     def setup_ops_tab(self):
-        f = ttk.Frame(self.tab_ops); f.pack(pady=20)
-        ttk.Label(f, text="ID Товара:").grid(row=0, column=0)
-        self.e_id = ttk.Entry(f); self.e_id.grid(row=0, column=1)
-        ttk.Label(f, text="Кол-во:").grid(row=1, column=0)
-        self.e_qty = ttk.Entry(f); self.e_qty.grid(row=1, column=1)
-        self.v_op = tk.StringVar(value="in")
-        ttk.Radiobutton(f, text="Приход", variable=self.v_op, value="in").grid(row=2, column=1)
-        ttk.Radiobutton(f, text="Расход", variable=self.v_op, value="out").grid(row=3, column=1)
-        ttk.Button(f, text="Выполнить", command=self.run_op).grid(row=4, column=0, columnspan=2, pady=10)
+        """
+        Настройка интерфейса второй вкладки (Форма операций).
+        """
+        # Создаем контейнер по центру экрана для красоты
+        f = ttk.Frame(self.tab_ops)
+        f.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+        
+        # Поле ввода ID товара
+        ttk.Label(f, text="ID Товара (из таблицы):").grid(row=0, column=0, sticky=tk.W)
+        self.e_id = ttk.Entry(f)
+        self.e_id.grid(row=0, column=1, pady=5)
+        
+        # Поле ввода количества
+        ttk.Label(f, text="Количество:").grid(row=1, column=0, sticky=tk.W)
+        self.e_qty = ttk.Entry(f)
+        self.e_qty.grid(row=1, column=1, pady=5)
+        
+        # Радиокнопки для выбора типа операции
+        ttk.Label(f, text="Тип операции:").grid(row=2, column=0, sticky=tk.W)
+        self.v_op = tk.StringVar(value="in") # По умолчанию - Приход ('in')
+        
+        frame_rb = ttk.Frame(f)
+        frame_rb.grid(row=2, column=1, pady=5)
+        
+        # value='in'/'out' должно совпадать с CHECK constraint в базе данных!
+        ttk.Radiobutton(frame_rb, text="Приход", variable=self.v_op, value="in").pack(side=tk.LEFT)
+        ttk.Radiobutton(frame_rb, text="Расход", variable=self.v_op, value="out").pack(side=tk.LEFT)
+        
+        # Кнопка выполнения
+        ttk.Button(f, text="Выполнить операцию", command=self.run_op).grid(row=3, column=0, columnspan=2, pady=20)
+
+    # =========================================================================
+    # ЛОГИКА ВЗАИМОДЕЙСТВИЯ С БД (API)
+    # =========================================================================
 
     def refresh_stock(self):
-        for i in self.tree.get_children(): self.tree.delete(i)
+        """
+        Чтение данных. 
+        ВАЖНО: Python не обращается к таблицам напрямую.
+        Мы делаем выборку из ПРЕДСТАВЛЕНИЯ (VIEW) 'v_warehouse_stock'.
+        Это скрывает структуру БД от приложения.
+        """
+        # 1. Очистка текущей таблицы
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+            
         try:
-            cur = self.conn.cursor()
-            cur.execute("SELECT part_number, name, location_code, stock_quantity, price FROM products")
-            for row in cur.fetchall(): self.tree.insert("", tk.END, values=row)
-        except Exception as e: messagebox.showerror("Error", str(e))
+            # Использование контекстного менеджера (with) для курсора
+            with self.conn.cursor() as cur:
+                # SQL-запрос к View
+                cur.execute("SELECT part_number, brand, name, stock_quantity, price, (stock_quantity*price) FROM v_warehouse_stock")
+                
+                # Получение всех строк и вставка в интерфейс
+                for row in cur.fetchall():
+                    self.tree.insert("", tk.END, values=row)
+        except Error as e:
+            messagebox.showerror("Ошибка БД при чтении", str(e))
 
     def run_op(self):
+        """
+        Выполнение складской операции.
+        ВАЖНО: Используется ХРАНИМАЯ ПРОЦЕДУРА (Stored Procedure).
+        Логика поиска цены, создания накладной и позиций находится внутри БД.
+        """
         try:
-            cur = self.conn.cursor()
-            cur.execute("INSERT INTO stock_movements (operation_type, contractor_id) VALUES (%s, 1) RETURNING movement_id", (self.v_op.get(),))
-            mid = cur.fetchone()[0]
-            cur.execute("SELECT price FROM products WHERE product_id=%s", (self.e_id.get(),))
-            price = cur.fetchone()[0]
-            cur.execute("INSERT INTO movement_items (movement_id, product_id, quantity, price) VALUES (%s, %s, %s, %s)", (mid, self.e_id.get(), self.e_qty.get(), price))
-            self.conn.commit()
-            messagebox.showinfo("OK", "Успешно")
-            self.refresh_stock()
+            with self.conn.cursor() as cur:
+                # Вызов процедуры CALL. 
+                # Параметры: ID товара, Кол-во, Тип операции, ID Контрагента (заглушка = 1)
+                cur.execute("CALL pr_register_operation(%s, %s, %s, %s)", 
+                            (self.e_id.get(), self.e_qty.get(), self.v_op.get(), 1))
+                
+                # Фиксация транзакции. Без этого изменения не сохранятся!
+                self.conn.commit()
+                
+                messagebox.showinfo("Успех", "Операция успешно проведена сервером!")
+                # Обновляем таблицу, чтобы увидеть новые остатки
+                self.refresh_stock()
+                
         except Exception as e:
-            self.conn.rollback()
-            messagebox.showerror("Error", str(e))
+            # Если БД вернула ошибку (например, сработал триггер "Недостаточно товара")
+            self.conn.rollback() # Откат транзакции
+            messagebox.showerror("Отказ сервера", f"БД отклонила операцию:\n{e}")
 
+    def open_add_product_window(self):
+        """
+        Открывает дополнительное (модальное) окно для добавления товара.
+        """
+        top = tk.Toplevel(self.root)
+        top.title("Новый товар")
+        f = ttk.Frame(top, padding=10)
+        f.pack()
+        
+        # Динамическое создание полей ввода из списка
+        fields = ["Артикул", "Название", "Цена", "Ячейка"]
+        entries = {} # Словарь для хранения ссылок на поля ввода
+        
+        for i, field in enumerate(fields):
+            ttk.Label(f, text=field).grid(row=i, column=0)
+            e = ttk.Entry(f)
+            e.grid(row=i, column=1)
+            entries[field] = e
+            
+        def save():
+            """Внутренняя функция для сохранения нового товара"""
+            try:
+                with self.conn.cursor() as cur:
+                    # Вызов процедуры добавления товара
+                    cur.execute("CALL pr_add_product(%s, %s, %s, %s)", 
+                               (entries["Артикул"].get(), 
+                                entries["Название"].get(), 
+                                entries["Цена"].get(), 
+                                entries["Ячейка"].get()))
+                    self.conn.commit()
+                    top.destroy() # Закрыть окно
+                    self.refresh_stock() # Обновить главную таблицу
+            except Exception as e:
+                self.conn.rollback()
+                messagebox.showerror("Ошибка сохранения", str(e))
+                
+        ttk.Button(f, text="Сохранить", command=save).grid(row=4, columnspan=2, pady=10)
+
+# Точка входа в программу
 if __name__ == "__main__":
     root = tk.Tk()
-    WarehouseApp(root)
+    app = WarehouseApp(root)
     root.mainloop()
 ```
 
