@@ -2006,7 +2006,7 @@ if __name__ == '__main__':
 - Python 3.11 Documentation.
 - PyQt6 Documentation.
 - psycopg2 Documentation.
-- PostgreSQL Official Website. — Режим доступа: https://www.postgresql.org
+- PostgreSQL Official Website. https://www.postgresql.org
 - Python Official Website. https://www.python.org
 - PyQt Official Website. https://www.riverbankcomputing.com/software/pyqt/
 - Stack Overflow — вопросы и ответы по программированию. https://stackoverflow.com
