@@ -405,6 +405,7 @@ LEFT JOIN movie_genres mg ON m.id = mg.movie_id
 LEFT JOIN genres g ON mg.genre_id = g.id
 WHERE 1=1
 GROUP BY m.id, m.name, m.release_year, m.duration, m.my_rating;
+```
 
 **3. Запрос поиска фильма определенного года:**
 ```sql
