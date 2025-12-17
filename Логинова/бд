@@ -1,0 +1,768 @@
+-- 1. Таблица для хранения информации о классах
+CREATE TABLE classes (
+    class_id SERIAL PRIMARY KEY,
+    class_name VARCHAR(10) NOT NULL UNIQUE,
+    class_teacher_id INT,
+    academic_year VARCHAR(9) NOT NULL
+);
+
+-- 2. Таблица для хранения информации об учителях
+CREATE TABLE teachers (
+    teacher_id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    birth_date DATE NOT NULL,
+    gender CHAR(1) CHECK (gender IN ('М', 'Ж')),
+    qualification VARCHAR(100),
+    employment_date DATE NOT NULL,
+    phone VARCHAR(20),
+    email VARCHAR(100) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Добавляем внешний ключ в таблицу classes
+ALTER TABLE classes 
+ADD CONSTRAINT fk_class_teacher 
+FOREIGN KEY (class_teacher_id) 
+REFERENCES teachers(teacher_id) ON DELETE SET NULL;
+
+-- 4. Таблица для хранения информации об учениках
+CREATE TABLE students (
+    student_id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    birth_date DATE NOT NULL,
+    gender CHAR(1) CHECK (gender IN ('М', 'Ж')),
+    class_id INT REFERENCES classes(class_id) ON DELETE SET NULL,
+    admission_year INT,
+    address TEXT,
+    phone VARCHAR(20),
+    email VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Таблица для хранения информации о предметах
+CREATE TABLE subjects (
+    subject_id SERIAL PRIMARY KEY,
+    subject_name VARCHAR(100) NOT NULL UNIQUE,
+    description TEXT
+);
+
+-- 6. Таблица для связи учителей и предметов
+CREATE TABLE teacher_subjects (
+    teacher_subject_id SERIAL PRIMARY KEY,
+    teacher_id INT REFERENCES teachers(teacher_id) ON DELETE CASCADE,
+    subject_id INT REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    UNIQUE(teacher_id, subject_id)
+);
+
+-- 7. Таблица для хранения информации об оценках
+CREATE TABLE grades (
+    grade_id SERIAL PRIMARY KEY,
+    student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+    subject_id INT REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    teacher_id INT REFERENCES teachers(teacher_id) ON DELETE SET NULL,
+    grade_value INT NOT NULL CHECK (grade_value BETWEEN 1 AND 5),
+    grade_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    grade_type VARCHAR(20) CHECK (grade_type IN ('текущая', 'контрольная', 'четвертная', 'полугодовая', 'годовая', 'экзамен')),
+    lesson_topic VARCHAR(200),
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8. Таблица для хранения расписания уроков
+CREATE TABLE schedule (
+    schedule_id SERIAL PRIMARY KEY,
+    class_id INT REFERENCES classes(class_id) ON DELETE CASCADE,
+    subject_id INT REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    teacher_id INT REFERENCES teachers(teacher_id) ON DELETE SET NULL,
+    day_of_week INT CHECK (day_of_week BETWEEN 1 AND 7),
+    lesson_number INT CHECK (lesson_number BETWEEN 1 AND 8),
+    room_number VARCHAR(10),
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+-- 9. Таблица для хранения четвертных/полугодовых/годовых оценок
+CREATE TABLE term_grades (
+    term_grade_id SERIAL PRIMARY KEY,
+    student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+    subject_id INT REFERENCES subjects(subject_id) ON DELETE CASCADE,
+    teacher_id INT REFERENCES teachers(teacher_id) ON DELETE SET NULL,
+    term_number INT CHECK (term_number BETWEEN 1 AND 4),
+    academic_year VARCHAR(9) NOT NULL,
+    grade_value INT CHECK (grade_value BETWEEN 1 AND 5),
+    is_final BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, subject_id, term_number, academic_year)
+);
+
+-- 10. Таблица для хранения посещаемости
+CREATE TABLE attendance (
+    attendance_id SERIAL PRIMARY KEY,
+    student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+    schedule_id INT REFERENCES schedule(schedule_id) ON DELETE CASCADE,
+    attendance_date DATE NOT NULL,
+    status VARCHAR(20) CHECK (status IN ('присутствовал', 'отсутствовал', 'опоздал', 'болел')),
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 11. Таблица для хранения домашних заданий
+CREATE TABLE homeworks (
+    homework_id SERIAL PRIMARY KEY,
+    schedule_id INT REFERENCES schedule(schedule_id) ON DELETE CASCADE,
+    teacher_id INT REFERENCES teachers(teacher_id) ON DELETE CASCADE,
+    assignment_text TEXT NOT NULL,
+    due_date DATE NOT NULL,
+    max_grade INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 12. Таблица для учета сданных домашних заданий
+CREATE TABLE homework_submissions (
+    submission_id SERIAL PRIMARY KEY,
+    homework_id INT REFERENCES homeworks(homework_id) ON DELETE CASCADE,
+    student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+    submission_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    submission_text TEXT,
+    attachment_url VARCHAR(500),
+    grade INT CHECK (grade BETWEEN 1 AND 5),
+    teacher_comment TEXT,
+    is_submitted BOOLEAN DEFAULT FALSE,
+    UNIQUE(homework_id, student_id)
+);
+
+-- 13. Таблица для родителей/опекунов
+CREATE TABLE parents (
+    parent_id SERIAL PRIMARY KEY,
+    student_id INT REFERENCES students(student_id) ON DELETE CASCADE,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    relationship VARCHAR(50),
+    phone VARCHAR(20) NOT NULL,
+    email VARCHAR(100),
+    work_place VARCHAR(200),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. Таблица для пользователей системы
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    user_type VARCHAR(20) CHECK (user_type IN ('admin', 'teacher', 'student', 'parent')),
+    related_id INT,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 15. Таблица для уведомлений и сообщений
+CREATE TABLE notifications (
+    notification_id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    notification_type VARCHAR(50) CHECK (notification_type IN ('оценка', 'посещаемость', 'домашнее задание', 'объявление', 'личное')),
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- === ЗАПОЛНЕНИЕ ТАБЛИЦ ДАННЫМИ ===
+
+-- 1. Заполняем таблицу учителей
+INSERT INTO teachers (first_name, last_name, birth_date, gender, qualification, employment_date, phone, email) VALUES
+('Иван', 'Петров', '1975-05-15', 'М', 'Высшая категория, кандидат наук', '2000-09-01', '+7(916)123-45-67', 'i.petrov@school123.ru'),
+('Мария', 'Сидорова', '1980-08-22', 'Ж', 'Первая категория', '2005-09-01', '+7(916)234-56-78', 'm.sidorova@school123.ru'),
+('Александр', 'Кузнецов', '1970-03-10', 'М', 'Высшая категория, заслуженный учитель', '1995-09-01', '+7(916)345-67-89', 'a.kuznetsov@school123.ru'),
+('Ольга', 'Иванова', '1985-11-30', 'Ж', 'Первая категория', '2010-09-01', '+7(916)456-78-90', 'o.ivanova@school123.ru'),
+('Сергей', 'Смирнов', '1978-07-12', 'М', 'Вторая категория', '2002-09-01', '+7(916)567-89-01', 's.smirnov@school123.ru'),
+('Елена', 'Васильева', '1982-04-25', 'Ж', 'Первая категория', '2007-09-01', '+7(916)678-90-12', 'e.vasilyeva@school123.ru'),
+('Дмитрий', 'Попов', '1973-09-18', 'М', 'Высшая категория', '1998-09-01', '+7(916)789-01-23', 'd.popov@school123.ru'),
+('Наталья', 'Соколова', '1988-12-05', 'Ж', 'Молодой специалист', '2015-09-01', '+7(916)890-12-34', 'n.sokolova@school123.ru');
+
+-- 2. Заполняем таблицу классов
+INSERT INTO classes (class_name, class_teacher_id, academic_year) VALUES
+('10А', 1, '2023-2024'),
+('10Б', 2, '2023-2024'),
+('9А', 3, '2023-2024'),
+('9Б', 4, '2023-2024'),
+('8А', 5, '2023-2024'),
+('8Б', 6, '2023-2024'),
+('7А', 7, '2023-2024'),
+('7Б', 8, '2023-2024');
+
+-- 3. Заполняем таблицу учеников (по 5 учеников в каждом классе)
+-- Класс 10А
+INSERT INTO students (first_name, last_name, birth_date, gender, class_id, admission_year, address, phone, email) VALUES
+('Алексей', 'Иванов', '2007-03-10', 'М', 1, 2020, 'ул. Ленина, д.15, кв.23', '+7(916)111-11-11', 'alex.ivanov@student.school.ru'),
+('Екатерина', 'Смирнова', '2007-07-25', 'Ж', 1, 2020, 'ул. Пушкина, д.8, кв.45', '+7(916)111-11-12', 'katya.smirnova@student.school.ru'),
+('Дмитрий', 'Кузнецов', '2007-11-05', 'М', 1, 2020, 'ул. Гагарина, д.12, кв.7', '+7(916)111-11-13', 'dima.kuznetsov@student.school.ru'),
+('Анна', 'Попова', '2007-01-20', 'Ж', 1, 2020, 'ул. Советская, д.25, кв.18', '+7(916)111-11-14', 'anna.popova@student.school.ru'),
+('Максим', 'Васильев', '2007-05-15', 'М', 1, 2020, 'ул. Мира, д.3, кв.32', '+7(916)111-11-15', 'max.vasilyev@student.school.ru');
+
+-- Класс 10Б
+INSERT INTO students (first_name, last_name, birth_date, gender, class_id, admission_year, address, phone) VALUES
+('Ирина', 'Николаева', '2007-09-12', 'Ж', 2, 2020, 'ул. Садовая, д.17, кв.9', '+7(916)222-11-11'),
+('Артем', 'Федоров', '2007-02-28', 'М', 2, 2020, 'ул. Лесная, д.5, кв.21', '+7(916)222-11-12'),
+('Светлана', 'Морозова', '2007-12-03', 'Ж', 2, 2020, 'ул. Цветочная, д.14, кв.14', '+7(916)222-11-13'),
+('Павел', 'Волков', '2007-04-18', 'М', 2, 2020, 'ул. Речная, д.9, кв.26', '+7(916)222-11-14'),
+('Ольга', 'Алексеева', '2007-06-30', 'Ж', 2, 2020, 'ул. Школьная, д.22, кв.11', '+7(916)222-11-15');
+
+-- Класс 9А
+INSERT INTO students (first_name, last_name, birth_date, gender, class_id, admission_year, address, phone) VALUES
+('Михаил', 'Лебедев', '2008-03-22', 'М', 3, 2020, 'ул. Солнечная, д.11, кв.8', '+7(916)333-11-11'),
+('Татьяна', 'Семенова', '2008-08-07', 'Ж', 3, 2020, 'ул. Зеленая, д.19, кв.15', '+7(916)333-11-12'),
+('Андрей', 'Павлов', '2008-01-14', 'М', 3, 2020, 'ул. Горная, д.6, кв.29', '+7(916)333-11-13'),
+('Юлия', 'Григорьева', '2008-10-25', 'Ж', 3, 2020, 'ул. Весенняя, д.13, кв.22', '+7(916)333-11-14'),
+('Иван', 'Степанов', '2008-07-09', 'М', 3, 2020, 'ул. Осенняя, д.24, кв.17', '+7(916)333-11-15');
+
+-- Класс 9Б (добавляем еще учеников)
+INSERT INTO students (first_name, last_name, birth_date, gender, class_id, admission_year, address, phone) VALUES
+('Виктор', 'Козлов', '2008-04-05', 'М', 4, 2020, 'ул. Северная, д.7, кв.13', '+7(916)444-11-11'),
+('Людмила', 'Орлова', '2008-11-19', 'Ж', 4, 2020, 'ул. Южная, д.16, кв.34', '+7(916)444-11-12'),
+('Роман', 'Андреев', '2008-02-11', 'М', 4, 2020, 'ул. Восточная, д.21, кв.6', '+7(916)444-11-13'),
+('Марина', 'Макарова', '2008-09-03', 'Ж', 4, 2020, 'ул. Западная, д.4, кв.19', '+7(916)444-11-14'),
+('Георгий', 'Захаров', '2008-12-28', 'М', 4, 2020, 'ул. Центральная, д.10, кв.28', '+7(916)444-11-15');
+
+-- 4. Заполняем таблицу предметов
+INSERT INTO subjects (subject_name, description) VALUES
+('Математика', 'Алгебра и геометрия'),
+('Русский язык', 'Русский язык и литература'),
+('Физика', 'Физика и астрономия'),
+('История', 'История России и всемирная история'),
+('Химия', 'Химия и основы биохимии'),
+('Биология', 'Биология и экология'),
+('Английский язык', 'Английский язык'),
+('География', 'География и экономика'),
+('Информатика', 'Информатика и программирование'),
+('Физкультура', 'Физическая культура'),
+('Обществознание', 'Обществознание и право'),
+('ОБЖ', 'Основы безопасности жизнедеятельности');
+
+-- 5. Заполняем таблицу связи учителей и предметов
+INSERT INTO teacher_subjects (teacher_id, subject_id) VALUES
+-- Иван Петров (учитель 10А)
+(1, 1), (1, 3), -- математика, физика
+-- Мария Сидорова (учитель 10Б)
+(2, 2), (2, 11), -- русский язык, обществознание
+-- Александр Кузнецов
+(3, 1), (3, 9), -- математика, информатика
+-- Ольга Иванова
+(4, 2), (4, 6), -- русский язык, биология
+-- Сергей Смирнов
+(5, 4), (5, 8), -- история, география
+-- Елена Васильева
+(6, 5), (6, 12), -- химия, ОБЖ
+-- Дмитрий Попов
+(7, 7), (7, 10), -- английский, физкультура
+-- Наталья Соколова
+(8, 7), (8, 4);  -- английский, история
+
+-- 6. Заполняем таблицу расписания (пример для 10А класса на понедельник)
+INSERT INTO schedule (class_id, subject_id, teacher_id, day_of_week, lesson_number, room_number, start_date, end_date, is_active) VALUES
+-- Понедельник, 10А класс
+(1, 1, 1, 1, 1, '101', '2023-09-01', '2024-05-31', true), -- Математика
+(1, 7, 7, 1, 2, '205', '2023-09-01', '2024-05-31', true), -- Английский
+(1, 4, 5, 1, 3, '301', '2023-09-01', '2024-05-31', true), -- История
+(1, 5, 6, 1, 4, '401', '2023-09-01', '2024-05-31', true), -- Химия
+(1, 10, 7, 1, 5, 'спортзал', '2023-09-01', '2024-05-31', true), -- Физкультура
+
+-- Вторник, 10А класс
+(1, 2, 2, 2, 1, '102', '2023-09-01', '2024-05-31', true), -- Русский язык
+(1, 1, 1, 2, 2, '101', '2023-09-01', '2024-05-31', true), -- Математика
+(1, 3, 1, 2, 3, '201', '2023-09-01', '2024-05-31', true), -- Физика
+(1, 9, 3, 2, 4, 'комп. класс', '2023-09-01', '2024-05-31', true), -- Информатика
+
+-- Среда, 10А класс
+(1, 6, 4, 3, 1, '402', '2023-09-01', '2024-05-31', true), -- Биология
+(1, 7, 7, 3, 2, '205', '2023-09-01', '2024-05-31', true), -- Английский
+(1, 8, 5, 3, 3, '302', '2023-09-01', '2024-05-31', true), -- География
+(1, 2, 2, 3, 4, '102', '2023-09-01', '2024-05-31', true); -- Русский язык
+
+-- 7. Заполняем таблицу оценок (примеры оценок для учеников 10А класса)
+-- Оценки для Алексея Иванова (student_id = 1)
+INSERT INTO grades (student_id, subject_id, teacher_id, grade_value, grade_date, grade_type, lesson_topic) VALUES
+-- Математика
+(1, 1, 1, 5, '2023-09-05', 'текущая', 'Решение квадратных уравнений'),
+(1, 1, 1, 4, '2023-09-12', 'текущая', 'Теорема Виета'),
+(1, 1, 1, 5, '2023-09-19', 'контрольная', 'Контрольная работа №1'),
+(1, 1, 1, 5, '2023-09-26', 'текущая', 'Графики функций'),
+
+-- Русский язык
+(1, 2, 2, 4, '2023-09-06', 'текущая', 'Причастный оборот'),
+(1, 2, 2, 3, '2023-09-13', 'текущая', 'Деепричастный оборот'),
+(1, 2, 2, 4, '2023-09-20', 'контрольная', 'Диктант'),
+
+-- Физика
+(1, 3, 1, 5, '2023-09-07', 'текущая', 'Кинематика'),
+(1, 3, 1, 5, '2023-09-14', 'текущая', 'Динамика'),
+
+-- Оценки для Екатерины Смирновой (student_id = 2)
+(2, 1, 1, 4, '2023-09-05', 'текущая', 'Решение квадратных уравнений'),
+(2, 1, 1, 5, '2023-09-12', 'текущая', 'Теорема Виета'),
+(2, 1, 1, 4, '2023-09-19', 'контрольная', 'Контрольная работа №1'),
+
+(2, 2, 2, 5, '2023-09-06', 'текущая', 'Причастный оборот'),
+(2, 2, 2, 5, '2023-09-13', 'текущая', 'Деепричастный оборот'),
+
+-- Оценки для Дмитрия Кузнецова (student_id = 3)
+(3, 1, 1, 3, '2023-09-05', 'текущая', 'Решение квадратных уравнений'),
+(3, 1, 1, 4, '2023-09-12', 'текущая', 'Теорема Виета'),
+(3, 1, 1, 3, '2023-09-19', 'контрольная', 'Контрольная работа №1'),
+
+(3, 3, 1, 5, '2023-09-07', 'текущая', 'Кинематика'),
+(3, 3, 1, 4, '2023-09-14', 'текущая', 'Динамика'),
+
+-- Оценки для Анны Поповой (student_id = 4)
+(4, 2, 2, 5, '2023-09-06', 'текущая', 'Причастный оборот'),
+(4, 2, 2, 5, '2023-09-13', 'текущая', 'Деепричастный оборот'),
+(4, 2, 2, 5, '2023-09-20', 'контрольная', 'Диктант'),
+
+(4, 6, 4, 5, '2023-09-08', 'текущая', 'Клеточное строение'),
+
+-- Оценки для Максима Васильева (student_id = 5)
+(5, 1, 1, 4, '2023-09-05', 'текущая', 'Решение квадратных уравнений'),
+(5, 3, 1, 5, '2023-09-07', 'текущая', 'Кинематика'),
+(5, 9, 3, 4, '2023-09-09', 'текущая', 'Основы программирования');
+
+-- 8. Заполняем таблицу четвертных оценок
+INSERT INTO term_grades (student_id, subject_id, teacher_id, term_number, academic_year, grade_value, is_final) VALUES
+-- Первая четверть
+(1, 1, 1, 1, '2023-2024', 5, false),
+(1, 2, 2, 1, '2023-2024', 4, false),
+(1, 3, 1, 1, '2023-2024', 5, false),
+
+(2, 1, 1, 1, '2023-2024', 4, false),
+(2, 2, 2, 1, '2023-2024', 5, false),
+
+(3, 1, 1, 1, '2023-2024', 3, false),
+(3, 3, 1, 1, '2023-2024', 4, false),
+
+(4, 2, 2, 1, '2023-2024', 5, false),
+(4, 6, 4, 1, '2023-2024', 5, false),
+
+(5, 1, 1, 1, '2023-2024', 4, false),
+(5, 3, 1, 1, '2023-2024', 5, false),
+
+-- Годовые оценки за прошлый год (2022-2023)
+(1, 1, 1, 4, '2022-2023', 5, true),
+(1, 2, 2, 4, '2022-2023', 5, true),
+(1, 3, 1, 4, '2022-2023', 5, true),
+(2, 1, 1, 4, '2022-2023', 4, true),
+(2, 2, 2, 4, '2022-2023', 5, true);
+
+-- 9. Заполняем таблицу посещаемости
+INSERT INTO attendance (student_id, schedule_id, attendance_date, status, reason) VALUES
+-- Примеры посещаемости на первую неделю сентября
+(1, 1, '2023-09-04', 'присутствовал', NULL),
+(2, 1, '2023-09-04', 'присутствовал', NULL),
+(3, 1, '2023-09-04', 'отсутствовал', 'Болезнь'),
+(4, 1, '2023-09-04', 'присутствовал', NULL),
+(5, 1, '2023-09-04', 'опоздал', 'Опоздал на автобус'),
+
+(1, 2, '2023-09-04', 'присутствовал', NULL),
+(2, 2, '2023-09-04', 'присутствовал', NULL),
+(3, 2, '2023-09-04', 'болел', 'Температура'),
+(4, 2, '2023-09-04', 'присутствовал', NULL),
+(5, 2, '2023-09-04', 'присутствовал', NULL),
+
+-- Второй день
+(1, 5, '2023-09-05', 'присутствовал', NULL),
+(2, 5, '2023-09-05', 'присутствовал', NULL),
+(3, 5, '2023-09-05', 'болел', 'Температура'),
+(4, 5, '2023-09-05', 'присутствовал', NULL),
+(5, 5, '2023-09-05', 'присутствовал', NULL);
+
+-- 10. Заполняем таблицу домашних заданий
+INSERT INTO homeworks (schedule_id, teacher_id, assignment_text, due_date, max_grade) VALUES
+(1, 1, 'Решить задачи №1-10 из учебника, стр. 45', '2023-09-12', 5),
+(2, 7, 'Выучить слова на тему "Семья", подготовить диалог', '2023-09-13', 5),
+(3, 5, 'Подготовить доклад о Петре I, не менее 2 страниц', '2023-09-20', 5),
+(5, 2, 'Упражнения 45, 46, 47 из рабочей тетради', '2023-09-14', 5),
+(6, 1, 'Решить задачи на построение графиков', '2023-09-15', 5);
+
+-- 11. Заполняем таблицу сданных домашних заданий
+INSERT INTO homework_submissions (homework_id, student_id, submission_date, submission_text, grade, teacher_comment, is_submitted) VALUES
+(1, 1, '2023-09-11', 'Все задачи решены, скан прикреплен', 5, 'Отлично! Все верно', true),
+(1, 2, '2023-09-11', 'Задачи 1-8 решены, 9-10 не успел', 4, 'Хорошо, но нужно уметь рассчитывать время', true),
+(1, 4, '2023-09-12', 'Все задачи решены', 5, 'Превосходная работа', true),
+(2, 1, '2023-09-12', 'Диалог на тему семьи подготовлен', 5, 'Отличное произношение', true),
+(2, 2, '2023-09-13', 'Слова выучены, диалог готов', 4, 'Небольшие ошибки в грамматике', true);
+
+-- 12. Заполняем таблицу родителей
+INSERT INTO parents (student_id, first_name, last_name, relationship, phone, email, work_place) VALUES
+(1, 'Сергей', 'Иванов', 'отец', '+7(916)999-11-11', 's.ivanov@gmail.com', 'Инженер на заводе'),
+(1, 'Елена', 'Иванова', 'мать', '+7(916)999-11-12', 'e.ivanova@gmail.com', 'Учитель в школе №5'),
+(2, 'Андрей', 'Смирнов', 'отец', '+7(916)999-22-11', 'a.smirnov@gmail.com', 'Врач в поликлинике'),
+(2, 'Татьяна', 'Смирнова', 'мать', '+7(916)999-22-12', 't.smirnova@gmail.com', 'Бухгалтер'),
+(3, 'Виктор', 'Кузнецов', 'отец', '+7(916)999-33-11', 'v.kuznetsov@gmail.com', 'Предприниматель'),
+(4, 'Надежда', 'Попова', 'мать', '+7(916)999-44-11', 'n.popova@gmail.com', 'Юрист'),
+(5, 'Ольга', 'Васильева', 'мать', '+7(916)999-55-11', 'o.vasilyeva@gmail.com', 'Дизайнер');
+
+-- 13. Заполняем таблицу пользователей
+INSERT INTO users (username, password_hash, user_type, related_id, is_active) VALUES
+-- Администраторы
+('admin', '$2y$10$YourHashedPasswordHere', 'admin', NULL, true),
+('director', '$2y$10$AnotherHashedPassword', 'admin', NULL, true),
+
+-- Учителя
+('i.petrov', '$2y$10$TeacherPass1', 'teacher', 1, true),
+('m.sidorova', '$2y$10$TeacherPass2', 'teacher', 2, true),
+('a.kuznetsov', '$2y$10$TeacherPass3', 'teacher', 3, true),
+
+-- Ученики
+('alex.ivanov', '$2y$10$StudentPass1', 'student', 1, true),
+('katya.smirnova', '$2y$10$StudentPass2', 'student', 2, true),
+('dima.kuznetsov', '$2y$10$StudentPass3', 'student', 3, true),
+
+-- Родители
+('s.ivanov', '$2y$10$ParentPass1', 'parent', 1, true), -- родитель Алексея Иванова
+('a.smirnov', '$2y$10$ParentPass2', 'parent', 3, true); -- родитель Екатерины Смирновой
+
+-- 14. Заполняем таблицу уведомлений
+INSERT INTO notifications (user_id, title, message, notification_type, is_read) VALUES
+-- Для родителей
+(10, 'Новая оценка по математике', 'У вашего ребенка Алексея новая оценка: 5 по математике', 'оценка', false),
+(11, 'Пропуск урока', 'Ваш ребенок Екатерина отсутствовал на уроке истории 04.09.2023', 'посещаемость', false),
+
+-- Для учеников
+(7, 'Новое домашнее задание', 'Задано домашнее задание по математике на 12.09.2023', 'домашнее задание', true),
+(8, 'Оценка за домашнюю работу', 'Вы получили 5 за домашнюю работу по английскому языку', 'оценка', true),
+
+-- Общие уведомления
+(7, 'Родительское собрание', 'Родительское собрание состоится 15.09.2023 в 18:00', 'объявление', false),
+(8, 'Изменение в расписании', 'Урок физики перенесен на пятницу', 'объявление', false);
+
+-- Создаем индексы для ускорения запросов
+CREATE INDEX idx_students_class_id ON students(class_id);
+CREATE INDEX idx_grades_student_id ON grades(student_id);
+CREATE INDEX idx_grades_subject_id ON grades(subject_id);
+CREATE INDEX idx_grades_date ON grades(grade_date);
+CREATE INDEX idx_attendance_student_date ON attendance(student_id, attendance_date);
+CREATE INDEX idx_term_grades_student_subject ON term_grades(student_id, subject_id);
+CREATE INDEX idx_schedule_class_day ON schedule(class_id, day_of_week);
+CREATE INDEX idx_users_related ON users(user_type, related_id);
+
+-- Создаем представления для удобства
+
+-- Продолжаем код с исправлением ошибки в представлении
+
+-- 1. Представление для отображения успеваемости учеников (исправленная версия)
+CREATE VIEW student_performance AS
+SELECT 
+    s.student_id,
+    s.first_name || ' ' || s.last_name as student_name,
+    c.class_name,
+    subj.subject_name,
+    AVG(g.grade_value)::DECIMAL(3,2) as average_grade,
+    COUNT(g.grade_id) as grades_count,
+    MIN(g.grade_value) as min_grade,
+    MAX(g.grade_value) as max_grade
+FROM students s
+JOIN classes c ON s.class_id = c.class_id
+LEFT JOIN grades g ON s.student_id = g.student_id
+LEFT JOIN subjects subj ON g.subject_id = subj.subject_id
+GROUP BY s.student_id, s.first_name, s.last_name, c.class_name, subj.subject_name;
+
+-- 2. Представление для посещаемости
+CREATE VIEW student_attendance_summary AS
+SELECT 
+    s.student_id,
+    s.first_name || ' ' || s.last_name as student_name,
+    c.class_name,
+    COUNT(CASE WHEN a.status = 'присутствовал' THEN 1 END) as present_count,
+    COUNT(CASE WHEN a.status = 'отсутствовал' THEN 1 END) as absent_count,
+    COUNT(CASE WHEN a.status = 'болел' THEN 1 END) as sick_count,
+    COUNT(CASE WHEN a.status = 'опоздал' THEN 1 END) as late_count,
+    COUNT(a.attendance_id) as total_lessons
+FROM students s
+JOIN classes c ON s.class_id = c.class_id
+LEFT JOIN attendance a ON s.student_id = a.student_id
+GROUP BY s.student_id, s.first_name, s.last_name, c.class_name;
+
+-- 3. Представление для текущих домашних заданий
+CREATE VIEW active_homeworks AS
+SELECT 
+    h.homework_id,
+    c.class_name,
+    s.subject_name,
+    t.first_name || ' ' || t.last_name as teacher_name,
+    h.assignment_text,
+    h.due_date,
+    COUNT(hs.submission_id) as submitted_count,
+    COUNT(CASE WHEN hs.is_submitted = true THEN 1 END) as graded_count
+FROM homeworks h
+JOIN schedule sch ON h.schedule_id = sch.schedule_id
+JOIN classes c ON sch.class_id = c.class_id
+JOIN subjects s ON sch.subject_id = s.subject_id
+JOIN teachers t ON h.teacher_id = t.teacher_id
+LEFT JOIN homework_submissions hs ON h.homework_id = hs.homework_id
+WHERE h.due_date >= CURRENT_DATE
+GROUP BY h.homework_id, c.class_name, s.subject_name, t.first_name, t.last_name, h.assignment_text, h.due_date;
+
+-- 4. Представление для успеваемости по классам
+CREATE VIEW class_performance AS
+SELECT 
+    c.class_id,
+    c.class_name,
+    subj.subject_name,
+    AVG(g.grade_value)::DECIMAL(3,2) as class_average,
+    COUNT(g.grade_id) as total_grades,
+    COUNT(DISTINCT s.student_id) as students_with_grades
+FROM classes c
+JOIN students s ON c.class_id = s.class_id
+LEFT JOIN grades g ON s.student_id = g.student_id
+LEFT JOIN subjects subj ON g.subject_id = subj.subject_id
+GROUP BY c.class_id, c.class_name, subj.subject_name;
+
+-- 5. Представление для родителей: информация об их детях
+CREATE VIEW parent_view AS
+SELECT 
+    p.parent_id,
+    p.first_name || ' ' || p.last_name as parent_name,
+    p.relationship,
+    p.phone as parent_phone,
+    s.student_id,
+    s.first_name || ' ' || s.last_name as student_name,
+    c.class_name,
+    t.first_name || ' ' || t.last_name as class_teacher,
+    t.phone as teacher_phone
+FROM parents p
+JOIN students s ON p.student_id = s.student_id
+JOIN classes c ON s.class_id = c.class_id
+JOIN teachers t ON c.class_teacher_id = t.teacher_id;
+
+-- Функция для вычисления среднего балла ученика по предмету
+CREATE OR REPLACE FUNCTION calculate_average_grade(
+    p_student_id INT,
+    p_subject_id INT,
+    p_start_date DATE DEFAULT NULL,
+    p_end_date DATE DEFAULT NULL
+)
+RETURNS DECIMAL(3,2) AS $$
+DECLARE
+    v_average DECIMAL(3,2);
+BEGIN
+    SELECT AVG(grade_value) INTO v_average
+    FROM grades
+    WHERE student_id = p_student_id
+        AND subject_id = p_subject_id
+        AND (p_start_date IS NULL OR grade_date >= p_start_date)
+        AND (p_end_date IS NULL OR grade_date <= p_end_date);
+    
+    RETURN COALESCE(ROUND(v_average, 2), 0);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для получения статистики ученика
+CREATE OR REPLACE FUNCTION get_student_statistics(p_student_id INT)
+RETURNS TABLE(
+    subject_name VARCHAR(100),
+    average_grade DECIMAL(3,2),
+    grades_count INT,
+    last_grade INT,
+    last_grade_date DATE
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        subj.subject_name,
+        AVG(g.grade_value)::DECIMAL(3,2) as average_grade,
+        COUNT(g.grade_id) as grades_count,
+        FIRST_VALUE(g.grade_value) OVER (PARTITION BY subj.subject_id ORDER BY g.grade_date DESC) as last_grade,
+        MAX(g.grade_date) as last_grade_date
+    FROM students s
+    JOIN grades g ON s.student_id = g.student_id
+    JOIN subjects subj ON g.subject_id = subj.subject_id
+    WHERE s.student_id = p_student_id
+    GROUP BY subj.subject_id, subj.subject_name, g.grade_value, g.grade_date
+    ORDER BY subj.subject_name;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Триггерная функция для проверки оценки
+CREATE OR REPLACE FUNCTION check_grade_before_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Проверяем, что учитель преподает этот предмет
+    IF NOT EXISTS (
+        SELECT 1 FROM teacher_subjects 
+        WHERE teacher_id = NEW.teacher_id 
+        AND subject_id = NEW.subject_id
+    ) AND NEW.teacher_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Учитель с ID % не преподает предмет с ID %', 
+            NEW.teacher_id, NEW.subject_id;
+    END IF;
+    
+    -- Проверяем, что ученик учится в классе, где преподает этот учитель
+    -- (опциональная проверка, можно закомментировать если не нужна)
+    IF NOT EXISTS (
+        SELECT 1 FROM students s
+        JOIN classes c ON s.class_id = c.class_id
+        JOIN schedule sch ON c.class_id = sch.class_id
+        WHERE s.student_id = NEW.student_id
+        AND sch.teacher_id = NEW.teacher_id
+        AND sch.subject_id = NEW.subject_id
+    ) AND NEW.teacher_id IS NOT NULL THEN
+        RAISE WARNING 'Ученик с ID % возможно не учится у учителя с ID % по предмету с ID %',
+            NEW.student_id, NEW.teacher_id, NEW.subject_id;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Создаем триггер для проверки оценок
+CREATE TRIGGER tr_check_grade_before_insert
+BEFORE INSERT ON grades
+FOR EACH ROW
+EXECUTE FUNCTION check_grade_before_insert();
+
+-- Триггер для автоматического создания пользователя при добавлении ученика
+CREATE OR REPLACE FUNCTION create_student_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO users (username, password_hash, user_type, related_id, is_active)
+    VALUES (
+        LOWER(REPLACE(NEW.first_name || '.' || NEW.last_name, ' ', '_')),
+        '$2y$10$DefaultStudentPasswordHash',
+        'student',
+        NEW.student_id,
+        true
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_create_student_user
+AFTER INSERT ON students
+FOR EACH ROW
+EXECUTE FUNCTION create_student_user();
+
+-- Триггер для обновления среднего балла при изменении оценок
+CREATE OR REPLACE FUNCTION update_term_grades_on_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Здесь можно добавить логику пересчета четвертных оценок
+    -- при изменении текущих оценок
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Создаем пользователя для работы с базой данных
+CREATE USER school_admin WITH PASSWORD 'SchoolAdmin123!';
+GRANT ALL PRIVILEGES ON DATABASE school_performance TO school_admin;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO school_admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO school_admin;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO school_admin;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO PUBLIC;
+
+-- Даем права на представления
+GRANT SELECT ON 
+    student_performance,
+    student_attendance_summary, 
+    active_homeworks,
+    class_performance,
+    parent_view
+TO PUBLIC;
+
+-- Тестовые запросы для проверки данных
+
+-- 1. Показать всех учеников с их классами
+SELECT 
+    s.student_id,
+    s.first_name || ' ' || s.last_name as ФИО,
+    s.birth_date as "Дата рождения",
+    c.class_name as Класс,
+    t.first_name || ' ' || t.last_name as "Классный руководитель"
+FROM students s
+JOIN classes c ON s.class_id = c.class_id
+JOIN teachers t ON c.class_teacher_id = t.teacher_id
+ORDER BY c.class_name, s.last_name;
+
+-- 2. Показать успеваемость учеников 10А класса
+SELECT 
+    student_name as "Ученик",
+    subject_name as "Предмет",
+    average_grade as "Средний балл",
+    grades_count as "Кол-во оценок"
+FROM student_performance 
+WHERE class_name = '10А'
+ORDER BY student_name, subject_name;
+
+-- 3. Показать текущие домашние задания для 10А класса
+SELECT 
+    class_name as Класс,
+    subject_name as Предмет,
+    teacher_name as Учитель,
+    assignment_text as "Домашнее задание",
+    due_date as "Срок сдачи",
+    submitted_count as "Сдано работ",
+    graded_count as "Проверено работ"
+FROM active_homeworks 
+WHERE class_name = '10А'
+ORDER BY due_date;
+
+-- 4. Показать посещаемость учеников
+SELECT 
+    student_name as "Ученик",
+    class_name as Класс,
+    present_count as "Присутствовал",
+    absent_count as "Отсутствовал",
+    sick_count as "Болел",
+    late_count as "Опоздал",
+    ROUND(present_count::DECIMAL / NULLIF(total_lessons, 0) * 100, 1) || '%' as "Процент посещаемости"
+FROM student_attendance_summary 
+WHERE total_lessons > 0
+ORDER BY class_name, student_name;
+
+-- 5. Показать родителей и их детей
+SELECT 
+    parent_name as "Родитель",
+    relationship as "Родство",
+    parent_phone as "Телефон родителя",
+    student_name as "Ребенок",
+    class_name as Класс,
+    class_teacher as "Классный руководитель"
+FROM parent_view
+ORDER BY parent_name;
+
+-- 6. Использование функции для расчета среднего балла
+SELECT 
+    s.first_name || ' ' || s.last_name as Ученик,
+    subj.subject_name as Предмет,
+    calculate_average_grade(s.student_id, subj.subject_id, '2023-09-01', '2023-09-30') as "Средний балл за сентябрь"
+FROM students s
+CROSS JOIN subjects subj
+WHERE s.student_id IN (1, 2, 3)
+AND EXISTS (
+    SELECT 1 FROM grades g 
+    WHERE g.student_id = s.student_id 
+    AND g.subject_id = subj.subject_id
+)
+ORDER BY s.last_name, subj.subject_name;
+
+-- Сообщение об успешном создании
+\echo '=============================================='
+\echo 'База данных school_performance успешно создана!'
+\echo '=============================================='
+\echo ''
+\echo 'Данные для подключения:'
+\echo 'База данных: school_performance'
+\echo 'Пользователь: school_admin'
+\echo 'Пароль: SchoolAdmin123!'
+\echo ''
+\echo 'Основные таблицы заполнены тестовыми данными:'
+\echo '- 8 классов'
+\echo '- 8 учителей'
+\echo '- 20 учеников'
+\echo '- 12 предметов'
+\echo '- Оценки, домашние задания, посещаемость'
+\echo '- Родители и пользователи'
+\echo ''
+\echo 'Для подключения используйте:'
+\echo 'psql -U school_admin -d school_performance'
+\echo '=============================================='
