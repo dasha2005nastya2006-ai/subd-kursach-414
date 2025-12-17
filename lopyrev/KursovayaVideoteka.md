@@ -405,6 +405,7 @@ LEFT JOIN movie_genres mg ON m.id = mg.movie_id
 LEFT JOIN genres g ON mg.genre_id = g.id
 WHERE 1=1
 GROUP BY m.id, m.name, m.release_year, m.duration, m.my_rating;
+```
 
 **3. Запрос поиска фильма определенного года:**
 ```sql
@@ -478,11 +479,33 @@ FROM actor_stats;
 ### 5.1 Защита данных
 **Обнаруженные и исправленные ошибки:**
    - Создание представлений для ограничения доступа к данным
+
+```sql
+CREATE VIEW movie_catalog AS
+SELECT name, release_year, duration, my_rating
+FROM movies
+WHERE my_rating IS NOT NULL;
+```
+
    - Использование ролевой модели
+
+```sql
+CREATE ROLE videoteka_user WITH LOGIN PASSWORD 'secure_password';
+GRANT SELECT, INSERT ON viewings TO videoteka_user;
+GRANT SELECT ON movies TO videoteka_user;
+```
 
 ### 5.2 Оптимизация производительности
 **Оптимизация индексов:**
    - Создание составных индексов для часто используемых комбинаций полей
+
+```sql
+CREATE INDEX idx_movies_name ON movies(name);
+CREATE INDEX idx_movies_year ON movies(release_year);
+CREATE INDEX idx_movies_rating ON movies(my_rating);
+CREATE INDEX idx_viewings_date ON viewings(viewing_date);
+```
+
    - Удаление неиспользуемых индексов
 
 ### 5.3 Оптимизация запросов

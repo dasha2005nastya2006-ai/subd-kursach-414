@@ -67,15 +67,15 @@ scale = Vector2(0.6, 0.6)
 texture = ExtResource("11_snnui")
 
 [node name="Exe4" type="Sprite2D" parent="."]
-position = Vector2(36, 1909)
+visible = false
 texture = ExtResource("12_g3p37")
 
 [node name="Exe3" type="Sprite2D" parent="."]
-position = Vector2(611.5, 1864)
+visible = false
 texture = ExtResource("13_ogqmp")
 
 [node name="Exe2" type="Sprite2D" parent="."]
-position = Vector2(1467, 1926.5)
+visible = false
 texture = ExtResource("14_5frm2")
 
 [connection signal="timeout" from="Timer" to="." method="_on_timer_timeout"]

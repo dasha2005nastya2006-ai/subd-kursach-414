@@ -1,29 +1,33 @@
-### <p align="center">Министерство образования, науки и молодежной политики Республики Коми
-### <p align="center">ГПОУ "Сыктывкарский политехнический техникум"
-## <p align="center">Курсовая работа
+<p align="center">Министерство образования, науки и молодежной политики Республики Коми</p>
 
-## <p align="center">**Тема: База данных для риэлторского агентства**
+<p align="center">ГПОУ "Сыктывкарский политехнический техникум"</p>
 
 
 
 
+<p align="center">Курсовая работа</p>
+
+
+<p align="center">тема: База данных для риэторского агентства </p>
+
+
+<p align="right"> выполнил </p>
+
+<p align="right">студент 4 курса </p>
+
+<p align="right">414 группы </p>
+
+<p align="right">Гилёв Иван Алексеевич</p>
 
 
 
+<p align="right">проверил</p>
 
-#### <p align="right">**Выполнил**
+<p align="right">Пунгин И.В.</p>
 
-<p align="right">Студент 4 курса 414 группы Гилёв Иван Алексеевич
+<p align="right">дата проверки: </p>
 
-#### <p align="right">**Проверил**
-<p align="right">Пунгин Илья Вячеславович
-
-#### <p align="right">**Дата проверки:**
-<p align="right">18.12.2025
-
-
-<p align="center">Сыктывкар 2025
-
+<p align="center">Сыктывкар 2025</p>
 
 ---
 
@@ -121,7 +125,7 @@
 -	Каталог дополнительных услуг (оценка, юридическое сопровождение)
 -	Учет заявок на услуги
 -	Расчет доходов от услуг
--	
+
 ### 2.2 Входные и выходные данные
 
 1.	**Данные сотрудников:**
@@ -252,8 +256,10 @@
 
 **Первая нормальная форма (1НФ):**
 - Требует, чтобы все атрибуты были атомарными (неделимыми). В таблице properties адрес разбит на составляющие (city, district, address), что позволяет выполнять поиск отдельно по городу или району.
+
 **Вторая нормальная форма (2НФ):**
 - Требует, чтобы таблица находилась в 1НФ и каждый не ключевой атрибут зависел от полного первичного ключа. В нашей схеме все таблицы имеют простой первичный ключ (id), поэтому условие 2НФ выполняется автоматически.
+
 **Третья нормальная форма (3НФ):**
 - Требует отсутствия транзитивных зависимостей (когда не ключевое поле зависит от другого не ключевого поля).
   
@@ -388,6 +394,29 @@
 ### 4.1 Создание таблиц и индексов
 
 База данных была разработана в СУБД PostgreSQL 14.
+Создание таблиц
+```sql
+CREATE TABLE employees ( id SERIAL PRIMARY KEY, first_name VARCHAR(50) NOT NULL, last_name VARCHAR(50) NOT NULL, phone VARCHAR(20) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, hire_date DATE NOT NULL DEFAULT CURRENT_DATE, commission_rate DECIMAL(5,2) DEFAULT 2.5, is_active BOOLEAN DEFAULT TRUE );
+```
+```sql
+CREATE TABLE clients ( id SERIAL PRIMARY KEY, first_name VARCHAR(50) NOT NULL, last_name VARCHAR(50) NOT NULL, phone VARCHAR(20) NOT NULL, email VARCHAR(100), client_type VARCHAR(10) CHECK (client_type IN ('buyer', 'seller', 'both')), registration_date DATE DEFAULT CURRENT_DATE );
+```
+```sql
+CREATE TABLE properties ( id SERIAL PRIMARY KEY, address VARCHAR(200) NOT NULL, city VARCHAR(50) NOT NULL, district VARCHAR(50), property_type VARCHAR(20) CHECK (property_type IN ('apartment', 'house', 'commercial', 'land')), rooms INTEGER, total_area DECIMAL(10,2) NOT NULL, living_area DECIMAL(10,2), floor INTEGER, total_floors INTEGER, price DECIMAL(12,2) NOT NULL, status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'sold', 'rented', 'archived')), owner_id INTEGER REFERENCES clients(id) ON DELETE SET NULL, agent_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, created_date DATE DEFAULT CURRENT_DATE, description TEXT );
+```
+```sql
+CREATE TABLE deals ( id SERIAL PRIMARY KEY, property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE RESTRICT, buyer_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT, seller_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT, agent_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE RESTRICT, deal_date DATE NOT NULL DEFAULT CURRENT_DATE, deal_price DECIMAL(12,2) NOT NULL, commission_amount DECIMAL(12,2) NOT NULL, deal_type VARCHAR(10) CHECK (deal_type IN ('sale', 'rent')), payment_method VARCHAR(30), notes TEXT );
+```
+```sql
+ CREATE TABLE viewings ( id SERIAL PRIMARY KEY, property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, agent_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, viewing_date TIMESTAMP NOT NULL, status VARCHAR(20) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled')), client_feedback TEXT, agent_notes TEXT );
+```
+```sql
+CREATE TABLE services ( id SERIAL PRIMARY KEY, service_name VARCHAR(100) NOT NULL, description TEXT, standard_price DECIMAL(10,2), duration_days INTEGER );
+```
+```sql
+CREATE TABLE service_requests ( id SERIAL PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE, service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE RESTRICT, agent_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, request_date DATE DEFAULT CURRENT_DATE, completion_date DATE, status VARCHAR(20) DEFAULT 'new' CHECK (status IN ('new', 'in_progress', 'completed', 'cancelled')), actual_price DECIMAL(10,2), notes TEXT );
+```
+
 Наполнение тестовыми данными:
 ```sql
 INSERT INTO employees (first_name, last_name, phone, email, commission_rate) VALUES
@@ -431,7 +460,7 @@ INSERT INTO services (service_name, description, standard_price) VALUES ('Оце
 -	Стратегия резервного копирования
 
 **Основные компоненты интерфейса:**
--	Главное окно:
+-	Главное окно
 -	Адаптивный интерфейс (подстраивается под разрешение экрана)
 -	Вкладки для каждой сущности
 -	Панель управления с кнопками CRUD
@@ -480,8 +509,8 @@ pg_dump -U gillop gillop > gillopdb_backup.sql
 ```
 **Затем были созданы бэкапы отдельных таблиц:**
 ```sql
-pg_dump -t reservation elesov > /tmp/reservationhostel.dump;  
-pg_dump -t schedule_of_cleaning_rooms elesov > /tmp/ schedule_of_cleaning_rooms hostel.dump;
+pg_dump -t deals gillop > /tmp/deals.dump;  
+pg_dump -t employees gillop > /tmp/ employees agensy.dump;
 ``` 
 Также был создана копия python-файла, отвечавшего за графический пользовательский интерфейс.
 
