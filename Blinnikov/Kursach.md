@@ -67,7 +67,7 @@
 
 
 
-# ** <p align="center"><a id="stage1">Глава 1</a></p>**
+# **<p align="center"><a id="stage1">Глава 1</a></p>**
 
 # <a id="introduction">Введение</a>
 
