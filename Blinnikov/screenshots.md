@@ -13,19 +13,14 @@
 
 # **<p align="center"><a id="stage1">Само приложение:</a></p>**
 <img width="342" height="332" alt="image" src="https://github.com/user-attachments/assets/c4049022-f49e-4b20-8bc7-d77b7910e351" />
-![Приложение](https://github.com/user-attachments/assets/c4049022-f49e-4b20-8bc7-d77b7910e351)
 
 <br>
 
 # **<p align="center"><a id="stage2">Окна входа:</a></p>**
 <img width="342" height="332" alt="image" src="https://github.com/user-attachments/assets/452e44fc-eccb-4602-b07e-6e3d196aa1a8" />
-![Окно входа](https://github.com/user-attachments/assets/452e44fc-eccb-4602-b07e-6e3d196aa1a8)
 <img width="345" height="337" alt="image" src="https://github.com/user-attachments/assets/e4cf1765-c1a4-4bfe-ba9d-956f4e756233" />
-![Окно входа](https://github.com/user-attachments/assets/e4cf1765-c1a4-4bfe-ba9d-956f4e756233)
 <img width="335" height="345" alt="image" src="https://github.com/user-attachments/assets/edc18f24-d03b-4054-838b-f58ef0fe5a0e" />
-![Окно входа](https://github.com/user-attachments/assets/edc18f24-d03b-4054-838b-f58ef0fe5a0e)
 <img width="332" height="334" alt="image" src="https://github.com/user-attachments/assets/d8991ce3-c890-473e-b2e6-dc00da9f2ecf" />
-![Окно входа](https://github.com/user-attachments/assets/d8991ce3-c890-473e-b2e6-dc00da9f2ecf)
 
 <br>
 
