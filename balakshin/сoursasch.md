@@ -741,8 +741,6 @@ export async function renderPassTest(id: number) {
 
   document.getElementById('finishBtn')!.onclick = () => {
     console.log('Ответы студента:', state.answers);
-
-    // 👉 тут позже будет отправка на backend
     location.hash = '/results';
   };
 }
@@ -1017,5 +1015,6 @@ res.json({ success: true, attemptId });
 
 
 export default router;
+
 
 </code>
