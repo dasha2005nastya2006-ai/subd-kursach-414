@@ -91,7 +91,7 @@
 
 <h2 id="введение">Введение</h2>
 
-<p>В современном образовательном процессе контроль знаний студентов является важным элементом. Система тестирования позволяет:</p>
+<p>В современном образовательном процессе контроль знаний студентов является важным элементом. Существую сторонние аналоги способные способные проверять знания учеников, но на примере ухода западных компания можно понять, что иметь свой собственный сервис точно не помешает, а также позволит расширять сервис под нужды центра. Система тестирования позволяет</p>
 <ul>
   <li>создавать и публиковать тесты;</li>
   <li>прохождение тестов студентами;</li>
@@ -207,81 +207,256 @@
 <h3>3.1. Таблицы базы данных</h3>
 
 <code>
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    password_hash VARCHAR(256) NOT NULL,
-    full_name VARCHAR(200) NOT NULL,
-    role_id INTEGER REFERENCES roles(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Таблица ролей
+-- 1. Роли пользователей
 CREATE TABLE roles (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL
+    name VARCHAR(50) UNIQUE NOT NULL
 );
 
--- Таблица курсов
+-- 2. Пользователи
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    role_id INT REFERENCES roles(id),
+    created_at TIMESTAMP DEFAULT now(),
+    last_login TIMESTAMP,
+    is_active BOOLEAN DEFAULT true,
+    profile_photo TEXT,
+    bio TEXT
+);
+
+-- 3. Курсы
 CREATE TABLE courses (
     id SERIAL PRIMARY KEY,
-    title VARCHAR(200) NOT NULL,
-    description TEXT
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    created_by INT REFERENCES users(id),
+    is_active BOOLEAN DEFAULT true,
+    category VARCHAR(100)
 );
 
--- Таблица групп
+-- 4. Группы
 CREATE TABLE groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    course_id INTEGER REFERENCES courses(id)
+    course_id INT REFERENCES courses(id),
+    start_date DATE,
+    end_date DATE,
+    max_students INT
 );
 
--- Таблица тестов
+-- 5. Связь студентов с группами
+CREATE TABLE group_students (
+    group_id INT REFERENCES groups(id),
+    student_id INT REFERENCES users(id),
+    enrolled_at TIMESTAMP DEFAULT now(),
+    status VARCHAR(20) CHECK (status IN ('active','completed','dropped')) DEFAULT 'active',
+    PRIMARY KEY (group_id, student_id)
+);
+
+-- 6. Модули курсов
+CREATE TABLE modules (
+    id SERIAL PRIMARY KEY,
+    course_id INT REFERENCES courses(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    position INT,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- 7. Тесты
 CREATE TABLE tests (
     id SERIAL PRIMARY KEY,
-    title VARCHAR(200) NOT NULL,
+    title VARCHAR(255) NOT NULL,
     description TEXT,
-    teacher_id INTEGER REFERENCES users(id),
-    duration_minutes INTEGER,
-    is_published BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    teacher_id INT REFERENCES users(id),
+    module_id INT REFERENCES modules(id),
+    duration_minutes INT,
+    is_published BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT now(),
+    category VARCHAR(50) CHECK (category IN ('quiz', 'exam', 'assignment')) DEFAULT 'quiz',
+    max_attempts INT DEFAULT 1
 );
 
--- Таблица вопросов
+-- 8. Вопросы
 CREATE TABLE questions (
     id SERIAL PRIMARY KEY,
-    test_id INTEGER REFERENCES tests(id),
+    test_id INT REFERENCES tests(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
-    type VARCHAR(20) CHECK (type IN ('single','multiple','text')),
-    points INTEGER DEFAULT 1
+    type VARCHAR(50) CHECK (type IN ('single', 'multiple', 'text', 'matching', 'code', 'file_upload')),
+    points INT DEFAULT 1,
+    hint TEXT,
+    explanation TEXT
 );
 
--- Таблица ответов
+-- 9. Ответы на вопросы
 CREATE TABLE answers (
     id SERIAL PRIMARY KEY,
-    question_id INTEGER REFERENCES questions(id),
+    question_id INT REFERENCES questions(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
-    is_correct BOOLEAN DEFAULT FALSE
+    is_correct BOOLEAN DEFAULT false,
+    media_url TEXT
 );
 
--- Таблица попыток прохождения теста
+-- 10. Теги для вопросов
+CREATE TABLE question_tags (
+    question_id INT REFERENCES questions(id) ON DELETE CASCADE,
+    tag VARCHAR(50),
+    PRIMARY KEY (question_id, tag)
+);
+
+-- 11. Попытки прохождения теста студентами
 CREATE TABLE test_attempts (
     id SERIAL PRIMARY KEY,
-    test_id INTEGER REFERENCES tests(id),
-    student_id INTEGER REFERENCES users(id),
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    test_id INT REFERENCES tests(id),
+    student_id INT REFERENCES users(id),
+    started_at TIMESTAMP DEFAULT now(),
     finished_at TIMESTAMP,
-    score NUMERIC(5,2)
+    score INT,
+    status VARCHAR(20) CHECK (status IN ('in_progress','completed','abandoned')) DEFAULT 'in_progress',
+    attempt_number INT DEFAULT 1
 );
 
--- Таблица ответов студента
+-- 12. Ответы студентов
 CREATE TABLE student_answers (
-    attempt_id INTEGER REFERENCES test_attempts(id),
-    question_id INTEGER REFERENCES questions(id),
-    answer_id INTEGER REFERENCES answers(id),
+    attempt_id INT REFERENCES test_attempts(id) ON DELETE CASCADE,
+    question_id INT REFERENCES questions(id),
+    answer_id INT REFERENCES answers(id),
     text_answer TEXT,
-    PRIMARY KEY (attempt_id, question_id)
+    file_answer TEXT,
+    PRIMARY KEY (attempt_id, question_id, answer_id)
 );
+
+-- 13. Логи действий пользователей
+CREATE TABLE user_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    action VARCHAR(255),
+    created_at TIMESTAMP DEFAULT now(),
+    ip_address VARCHAR(50),
+    device_info TEXT
+);
+
+-- 14. Результаты модульных заданий
+CREATE TABLE module_results (
+    id SERIAL PRIMARY KEY,
+    student_id INT REFERENCES users(id),
+    module_id INT REFERENCES modules(id),
+    score INT,
+    completed_at TIMESTAMP DEFAULT now(),
+    status VARCHAR(20) CHECK (status IN ('completed','in_progress','failed')) DEFAULT 'in_progress'
+);
+
+-- 15. Отчеты по тестам
+CREATE TABLE test_reports (
+    id SERIAL PRIMARY KEY,
+    test_id INT REFERENCES tests(id),
+    report_data JSONB,
+    generated_at TIMESTAMP DEFAULT now()
+);
+
+-- 16. Материалы курса
+CREATE TABLE course_materials (
+    id SERIAL PRIMARY KEY,
+    module_id INT REFERENCES modules(id) ON DELETE CASCADE,
+    title VARCHAR(255),
+    description TEXT,
+    file_url TEXT,
+    material_type VARCHAR(50) CHECK (material_type IN ('video','pdf','presentation','link','other')),
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- 17. Задания
+CREATE TABLE assignments (
+    id SERIAL PRIMARY KEY,
+    module_id INT REFERENCES modules(id),
+    title VARCHAR(255),
+    description TEXT,
+    due_date TIMESTAMP,
+    max_score INT
+);
+
+-- 18. Ответы на задания
+CREATE TABLE assignment_submissions (
+    id SERIAL PRIMARY KEY,
+    assignment_id INT REFERENCES assignments(id),
+    student_id INT REFERENCES users(id),
+    submitted_at TIMESTAMP DEFAULT now(),
+    score INT,
+    feedback TEXT,
+    file_url TEXT,
+    status VARCHAR(20) CHECK (status IN ('submitted','graded','late','missing')) DEFAULT 'submitted'
+);
+
+-- 19. Расписание занятий
+CREATE TABLE schedule (
+    id SERIAL PRIMARY KEY,
+    group_id INT REFERENCES groups(id),
+    module_id INT REFERENCES modules(id),
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    location VARCHAR(255),
+    teacher_id INT REFERENCES users(id)
+);
+
+-- 20. Уведомления
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    title VARCHAR(255),
+    message TEXT,
+    is_read BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT now(),
+    type VARCHAR(50) CHECK (type IN ('info','alert','reminder'))
+);
+
+-- 21. Достижения и бейджи
+CREATE TABLE achievements (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255),
+    description TEXT,
+    points INT
+);
+
+CREATE TABLE user_achievements (
+    user_id INT REFERENCES users(id),
+    achievement_id INT REFERENCES achievements(id),
+    awarded_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (user_id, achievement_id)
+);
+
+-- 22. Обратная связь и комментарии
+CREATE TABLE comments (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    entity_type VARCHAR(50) CHECK (entity_type IN ('course','module','test','question','assignment')),
+    entity_id INT,
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- 23. Интеграция с внешними сервисами (например, облачное хранение, видео-хостинг)
+CREATE TABLE integrations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100),
+    api_key TEXT,
+    config JSONB,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- 24. Индексы для оптимизации
+CREATE INDEX idx_users_role ON users(role_id);
+CREATE INDEX idx_tests_teacher ON tests(teacher_id);
+CREATE INDEX idx_tests_module ON tests(module_id);
+CREATE INDEX idx_attempts_student ON test_attempts(student_id);
+CREATE INDEX idx_group_students_student ON group_students(student_id);
+CREATE INDEX idx_user_logs_user ON user_logs(user_id);
+CREATE INDEX idx_schedule_group ON schedule(group_id);
+CREATE INDEX idx_assignment_submissions_student ON assignment_submissions(student_id);
+
 </code>
 
 <h3>3.2. Нормализация</h3> 
@@ -295,86 +470,621 @@ CREATE TABLE student_answers (
 <h2 id="глава4-физическая-структура">4. Физическая структура базы данных</h2> 
 
 <h3>4.1. Выбор СУБД</h3> 
-<p>Выбрана СУБД <strong>PostgreSQL 14+</strong> за надежность, производительность и поддержку расширенных функций.</p> 
+<p>Для реализации системы выбран сервер баз данных <strong>PostgreSQL 14+</strong>. Это современная реляционная СУБД, известная своей надежностью, высокой производительностью и поддержкой расширенных функций, таких как полнотекстовый поиск, сложные типы данных и транзакции с высокой согласованностью. PostgreSQL также хорошо масштабируется, поддерживает параллельное выполнение запросов и имеет активное сообщество, что обеспечивает долгосрочную поддержку проекта.</p> 
 
 <h3>4.2. Типы данных</h3>
+<p>При проектировании базы данных важно правильно выбрать типы данных для хранения информации. Это напрямую влияет на скорость выполнения запросов, размер базы и целостность данных. В таблице ниже приведены основные типы данных, используемые в проекте:</p>
 <table>
     <tr><th>Тип данных</th><th>Применение</th></tr>
-    <tr><td>SERIAL</td><td>Автоинкрементные первичные ключи</td></tr>
-    <tr><td>INTEGER</td><td>Количественные данные (лады, год)</td></tr>
-    <tr><td>DECIMAL(10,2)</td><td>Денежные значения с точностью до копеек</td></tr>
-    <tr><td>VARCHAR</td><td>Текстовые данные переменной длины</td></tr>
-    <tr><td>TEXT</td><td>Длинные текстовые описания</td></tr>
-    <tr><td>DATE/TIMESTAMP</td><td>Даты и время</td></tr>
+    <tr><td>SERIAL</td><td>Автоинкрементные первичные ключи, обеспечивающие уникальность записей</td></tr>
+    <tr><td>INTEGER</td><td>Количественные данные, например, возраст, количество попыток теста, год</td></tr>
+    <tr><td>DECIMAL(10,2)</td><td>Денежные значения с точностью до копеек, например, стоимость курсов</td></tr>
+    <tr><td>VARCHAR</td><td>Текстовые данные переменной длины, такие как названия курсов или имена пользователей</td></tr>
+    <tr><td>TEXT</td><td>Длинные текстовые описания, комментарии и пояснения</td></tr>
+    <tr><td>DATE/TIMESTAMP</td><td>Даты и время создания записей, начала и окончания тестов</td></tr>
 </table>
+<p>Выбор правильного типа данных позволяет не только эффективно хранить информацию, но и упрощает последующую обработку данных в аналитических запросах.</p>
 
 <h3>4.3. Стратегия резервного копирования</h3> 
+<p>Для минимизации риска потери данных предусмотрена комплексная стратегия резервного копирования:</p>
 <ul> 
-    <li>Полные резервные копии раз в день в 02:00</li> 
-    <li>Инкрементные копии каждые 4 часа</li> <li>Хранение на отдельном сервере и облаке</li> 
-    <li>Регулярное тестирование восстановления</li> 
+    <li>Полные резервные копии базы данных выполняются раз в день в 02:00, что позволяет восстанавливать данные за последние сутки</li> 
+    <li>Инкрементные копии выполняются каждые 4 часа, фиксируя изменения с момента последнего полного бэкапа</li> 
+    <li>Резервные копии хранятся как на отдельном сервере, так и в облачном хранилище, что обеспечивает отказоустойчивость</li> 
+    <li>Регулярно проводится тестирование восстановления, чтобы убедиться в работоспособности всех резервных копий и корректности процедуры восстановления</li> 
 </ul> 
+<p>Данная стратегия обеспечивает баланс между безопасностью данных и временем восстановления системы в случае сбоя.</p>
 
 <h3>4.4. Безопасность данных</h3> 
+<p>Безопасность данных является приоритетом проекта. В системе реализованы следующие меры:</p>
 <ul> 
-    <li>Шифрование паролей bcrypt</li> 
-    <li>Ролевая модель доступа (admin, teacher, student, viewer)</li> 
-    <li>SSL-шифрование подключений</li> 
-    <li>Аудит критических операций</li> 
-</ul>
+    <li>Шифрование паролей пользователей с использованием алгоритма <strong>bcrypt</strong> для защиты учетных данных</li> 
+    <li>Ролевая модель доступа с разграничением полномочий: <em>admin</em>, <em>teacher</em>, <em>student</em>, <em>viewer</em>, что предотвращает несанкционированный доступ</li> 
+    <li>SSL-шифрование соединений между клиентом и сервером базы данных для защиты данных при передаче</li> 
+    <li>Аудит критических операций с фиксацией действий пользователей, таких как создание тестов, удаление данных или изменение ролей</li> 
+</ul> 
+<p>Все эти меры в совокупности обеспечивают высокий уровень защиты информации, соответствующий современным требованиям к безопасности образовательных платформ.</p>
+
 
 <h2 id="глава5-реализация-проекта">5. Реализация проекта в среде PostgreSQL</h2> 
 <h3 id="51-создание-таблиц">5.1. Создание таблиц</h3> 
-<p>Примеры SQL для создания таблиц приведены в разделе логической структуры (см. выше).</p> 
+<p>В данной системе реализована расширенная структура базы данных для образовательного центра, охватывающая пользователей, курсы, тесты, задания, модули и вспомогательные сущности. Каждая таблица выполняет свою роль в обеспечении функциональности системы:</p> 
+<ul> 
+  <li><strong>roles</strong> — хранит информацию о ролях пользователей (администратор, преподаватель, студент, просмотрщик), что обеспечивает контроль доступа.</li> 
+  <li><strong>users</strong> — содержит данные пользователей: email, хэш пароля, ФИО, роль, дату регистрации, последнее посещение, аватар и биографию.</li> 
+  <li><strong>courses</strong> — информация о курсах, их описания, авторы, статус активности и категория курса.</li> 
+  <li><strong>groups</strong> — группы студентов, привязанные к конкретным курсам, с указанием периода обучения и максимального количества студентов.</li> 
+  <li><strong>group_students</strong> — связывает студентов с группами, фиксирует дату зачисления и статус студента (активен, завершил, покинул).</li> 
+  <li><strong>modules</strong> — модули внутри курсов, содержащие тесты, задания и материалы, с порядковым номером и статусом активности.</li> 
+  <li><strong>tests</strong> — тесты, привязанные к модулям, с информацией о преподавателе, длительности, категории, числе попыток и статусе публикации.</li> 
+  <li><strong>questions</strong> — вопросы тестов с типами (single, multiple, text, matching, code, file_upload), баллами, подсказками и пояснениями.</li> 
+  <li><strong>answers</strong> — варианты ответов на вопросы, с возможностью указания правильного ответа и медиа-контента.</li> 
+  <li><strong>question_tags</strong> — теги для вопросов, используемые для фильтрации и аналитики.</li> <li><strong>test_attempts</strong> — попытки прохождения тестов студентами с фиксацией времени начала и окончания, оценкой, статусом и номером попытки.</li> 
+  <li><strong>student_answers</strong> — ответы студентов на вопросы тестов, включая текстовые и файлы.</li> 
+  <li><strong>user_logs</strong> — логи действий пользователей для аудита и анализа активности.</li> 
+  <li><strong>module_results</strong> — результаты выполнения модульных заданий, с баллами, статусом и датой завершения.</li> 
+  <li><strong>test_reports</strong> — отчеты по тестам в формате JSON с данными для аналитики.</li> <li><strong>course_materials</strong> — материалы модулей: видео, pdf, презентации, ссылки, с указанием даты создания и типа материала.</li> 
+  <li><strong>assignments</strong> — задания для студентов с дедлайнами и максимальными баллами.</li> 
+  <li><strong>assignment_submissions</strong> — ответы студентов на задания с оценкой, статусом, обратной связью и файлами.</li> 
+  <li><strong>schedule</strong> — расписание занятий по группам, модулям и преподавателям с указанием времени и локации.</li> 
+  <li><strong>notifications</strong> — уведомления для пользователей, с типом (info, alert, reminder) и статусом прочтения.</li> <li><strong>achievements</strong> и <strong>user_achievements</strong> — система достижений и бейджей студентов с баллами и датой присуждения.</li> 
+  <li><strong>comments</strong> — комментарии и обратная связь по курсам, модулям, тестам, вопросам и заданиям.</li> 
+  <li><strong>integrations</strong> — таблица для хранения конфигураций внешних сервисов (облачное хранение, видео-хостинг и др.).</li> 
+</ul> 
+<p>Такое построение базы данных обеспечивает масштабируемость системы, позволяет легко добавлять новые функциональные элементы и обеспечивает высокую производительность при обработке большого количества данных. Каждая таблица связана с другими через внешние ключи, что гарантирует целостность данных и упрощает построение сложных запросов.</p>
+<code>
+-- 1. Роли пользователей
+CREATE TABLE roles (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL
+);
+
+-- 2. Пользователи
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    role_id INT REFERENCES roles(id),
+    created_at TIMESTAMP DEFAULT now(),
+    last_login TIMESTAMP,
+    is_active BOOLEAN DEFAULT true,
+    profile_photo TEXT,
+    bio TEXT
+);
+
+-- 3. Курсы
+CREATE TABLE courses (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    created_by INT REFERENCES users(id),
+    is_active BOOLEAN DEFAULT true,
+    category VARCHAR(100)
+);
+
+-- 4. Группы
+CREATE TABLE groups (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    course_id INT REFERENCES courses(id),
+    start_date DATE,
+    end_date DATE,
+    max_students INT
+);
+
+-- 5. Связь студентов с группами
+CREATE TABLE group_students (
+    group_id INT REFERENCES groups(id),
+    student_id INT REFERENCES users(id),
+    enrolled_at TIMESTAMP DEFAULT now(),
+    status VARCHAR(20) CHECK (status IN ('active','completed','dropped')) DEFAULT 'active',
+    PRIMARY KEY (group_id, student_id)
+);
+
+-- 6. Модули курсов
+CREATE TABLE modules (
+    id SERIAL PRIMARY KEY,
+    course_id INT REFERENCES courses(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    position INT,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- 7. Тесты
+CREATE TABLE tests (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    teacher_id INT REFERENCES users(id),
+    module_id INT REFERENCES modules(id),
+    duration_minutes INT,
+    is_published BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT now(),
+    category VARCHAR(50) CHECK (category IN ('quiz', 'exam', 'assignment')) DEFAULT 'quiz',
+    max_attempts INT DEFAULT 1
+);
+
+-- 8. Вопросы
+CREATE TABLE questions (
+    id SERIAL PRIMARY KEY,
+    test_id INT REFERENCES tests(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    type VARCHAR(50) CHECK (type IN ('single', 'multiple', 'text', 'matching', 'code', 'file_upload')),
+    points INT DEFAULT 1,
+    hint TEXT,
+    explanation TEXT
+);
+
+-- 9. Ответы на вопросы
+CREATE TABLE answers (
+    id SERIAL PRIMARY KEY,
+    question_id INT REFERENCES questions(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    is_correct BOOLEAN DEFAULT false,
+    media_url TEXT
+);
+
+-- 10. Теги для вопросов
+CREATE TABLE question_tags (
+    question_id INT REFERENCES questions(id) ON DELETE CASCADE,
+    tag VARCHAR(50),
+    PRIMARY KEY (question_id, tag)
+);
+
+-- 11. Попытки прохождения теста студентами
+CREATE TABLE test_attempts (
+    id SERIAL PRIMARY KEY,
+    test_id INT REFERENCES tests(id),
+    student_id INT REFERENCES users(id),
+    started_at TIMESTAMP DEFAULT now(),
+    finished_at TIMESTAMP,
+    score INT,
+    status VARCHAR(20) CHECK (status IN ('in_progress','completed','abandoned')) DEFAULT 'in_progress',
+    attempt_number INT DEFAULT 1
+);
+
+-- 12. Ответы студентов
+CREATE TABLE student_answers (
+    attempt_id INT REFERENCES test_attempts(id) ON DELETE CASCADE,
+    question_id INT REFERENCES questions(id),
+    answer_id INT REFERENCES answers(id),
+    text_answer TEXT,
+    file_answer TEXT,
+    PRIMARY KEY (attempt_id, question_id, answer_id)
+);
+
+-- 13. Логи действий пользователей
+CREATE TABLE user_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    action VARCHAR(255),
+    created_at TIMESTAMP DEFAULT now(),
+    ip_address VARCHAR(50),
+    device_info TEXT
+);
+
+-- 14. Результаты модульных заданий
+CREATE TABLE module_results (
+    id SERIAL PRIMARY KEY,
+    student_id INT REFERENCES users(id),
+    module_id INT REFERENCES modules(id),
+    score INT,
+    completed_at TIMESTAMP DEFAULT now(),
+    status VARCHAR(20) CHECK (status IN ('completed','in_progress','failed')) DEFAULT 'in_progress'
+);
+
+-- 15. Отчеты по тестам
+CREATE TABLE test_reports (
+    id SERIAL PRIMARY KEY,
+    test_id INT REFERENCES tests(id),
+    report_data JSONB,
+    generated_at TIMESTAMP DEFAULT now()
+);
+
+-- 16. Материалы курса
+CREATE TABLE course_materials (
+    id SERIAL PRIMARY KEY,
+    module_id INT REFERENCES modules(id) ON DELETE CASCADE,
+    title VARCHAR(255),
+    description TEXT,
+    file_url TEXT,
+    material_type VARCHAR(50) CHECK (material_type IN ('video','pdf','presentation','link','other')),
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- 17. Задания
+CREATE TABLE assignments (
+    id SERIAL PRIMARY KEY,
+    module_id INT REFERENCES modules(id),
+    title VARCHAR(255),
+    description TEXT,
+    due_date TIMESTAMP,
+    max_score INT
+);
+
+-- 18. Ответы на задания
+CREATE TABLE assignment_submissions (
+    id SERIAL PRIMARY KEY,
+    assignment_id INT REFERENCES assignments(id),
+    student_id INT REFERENCES users(id),
+    submitted_at TIMESTAMP DEFAULT now(),
+    score INT,
+    feedback TEXT,
+    file_url TEXT,
+    status VARCHAR(20) CHECK (status IN ('submitted','graded','late','missing')) DEFAULT 'submitted'
+);
+
+-- 19. Расписание занятий
+CREATE TABLE schedule (
+    id SERIAL PRIMARY KEY,
+    group_id INT REFERENCES groups(id),
+    module_id INT REFERENCES modules(id),
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    location VARCHAR(255),
+    teacher_id INT REFERENCES users(id)
+);
+
+-- 20. Уведомления
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    title VARCHAR(255),
+    message TEXT,
+    is_read BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT now(),
+    type VARCHAR(50) CHECK (type IN ('info','alert','reminder'))
+);
+
+-- 21. Достижения и бейджи
+CREATE TABLE achievements (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255),
+    description TEXT,
+    points INT
+);
+
+CREATE TABLE user_achievements (
+    user_id INT REFERENCES users(id),
+    achievement_id INT REFERENCES achievements(id),
+    awarded_at TIMESTAMP DEFAULT now(),
+    PRIMARY KEY (user_id, achievement_id)
+);
+
+-- 22. Обратная связь и комментарии
+CREATE TABLE comments (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    entity_type VARCHAR(50) CHECK (entity_type IN ('course','module','test','question','assignment')),
+    entity_id INT,
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- 23. Интеграция с внешними сервисами (например, облачное хранение, видео-хостинг)
+CREATE TABLE integrations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100),
+    api_key TEXT,
+    config JSONB,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- 24. Индексы для оптимизации
+CREATE INDEX idx_users_role ON users(role_id);
+CREATE INDEX idx_tests_teacher ON tests(teacher_id);
+CREATE INDEX idx_tests_module ON tests(module_id);
+CREATE INDEX idx_attempts_student ON test_attempts(student_id);
+CREATE INDEX idx_group_students_student ON group_students(student_id);
+CREATE INDEX idx_user_logs_user ON user_logs(user_id);
+CREATE INDEX idx_schedule_group ON schedule(group_id);
+CREATE INDEX idx_assignment_submissions_student ON assignment_submissions(student_id);
+
+</code>
 
 <h3 id="52-создание-запросов">5.2. Создание запросов</h3>
+<p>Для эффективного взаимодействия с базой данных и извлечения нужной информации были созданы запросы SQL, покрывающие различные сценарии работы с системой. Основная цель запросов — предоставить актуальные данные о тестах, студентах, преподавателях, курсах и результатах обучения, а также обеспечить возможность аналитики и мониторинга активности пользователей.</p> <p>Ниже приведены ключевые группы запросов и их назначение:</p> 
+<ul> 
+  <li><strong>Управление тестами и попытками:</strong> Запросы 1, 4, 20, 21 и 30 позволяют получать информацию о доступных тестах, их публикации, количестве вопросов, результатах попыток студентов, а также проценте успешного прохождения.</li> 
+  <li><strong>Анализ успеваемости студентов:</strong> Запросы 3, 8, 11, 19, 23 и 25 вычисляют средние баллы, прогресс по модулям, количество успешных попыток и выявляют студентов с низкой успеваемостью.</li> 
+  <li><strong>Работа с группами и курсами:</strong> Запросы 2, 6, 17, 22 и 28 предоставляют информацию о составах групп, количестве тестов и заданий в модулях и курсах, рейтингах преподавателей и активности студентов.</li> 
+  <li><strong>Управление заданиями и материалами:</strong> Запросы 5, 12, 15, 26 обеспечивают контроль за выполнением заданий студентами, количеством просмотров материалов и своевременной сдачей работ.</li> <li><strong>Комментарии и уведомления:</strong> Запросы 7, 9, 24 и 29 позволяют получать непрочитанные уведомления, комментарии к курсам и уведомления для групп студентов.
+  </li> <li><strong>Логи и активность пользователей:</strong> Запрос 13 собирает данные об активности пользователя за определённый период для анализа использования системы.</li> 
+  <li><strong>Продвинутая аналитика:</strong> Запрос 27 использует оконные функции для сравнения результатов студентов с средним баллом по тесту, что позволяет выявлять отклонения и оценивать успеваемость более детально.</li> 
+</ul> 
+<p>Все запросы спроектированы таким образом, чтобы быть эффективными и легко адаптируемыми к новым сценариям, включая расширение функционала, добавление новых ролей пользователей, курсов и модулей, а также формирование отчетов для преподавателей и администраторов. Такая структура запросов обеспечивает прозрачность данных, удобство анализа и гибкость работы с информацией.</p>
 <code>
 -- Получение всех тестов студента
-SELECT t.id, t.title, t.is_published
-FROM tests t
-JOIN test_attempts ta ON t.id = ta.test_id
+-- 1. Получение всех тестов студента с информацией о курсе и модуле
+SELECT t.id AS test_id, t.title AS test_title, m.title AS module_title, c.title AS course_title, t.is_published
+FROM test_attempts ta
+JOIN tests t ON ta.test_id = t.id
+JOIN modules m ON t.module_id = m.id
+JOIN courses c ON m.course_id = c.id
 WHERE ta.student_id = 1;
 
--- Получение результатов теста
-SELECT ta.id, u.full_name, ta.score
-FROM test_attempts ta
-JOIN users u ON ta.student_id = u.id
-WHERE ta.test_id = 2;
+-- 2. Получение всех студентов группы с их текущим статусом
+SELECT u.id AS student_id, u.full_name, gs.status
+FROM group_students gs
+JOIN users u ON gs.student_id = u.id
+WHERE gs.group_id = 3;
 
--- Получение топ-5 студентов по среднему баллу
+-- 3. Получение среднего балла студентов по конкретному тесту
 SELECT u.full_name, AVG(ta.score) AS avg_score
 FROM test_attempts ta
 JOIN users u ON ta.student_id = u.id
+WHERE ta.test_id = 5
 GROUP BY u.id
+ORDER BY avg_score DESC;
+
+-- 4. Получение списка тестов преподавателя с количеством попыток
+SELECT t.id, t.title, COUNT(ta.id) AS attempts_count
+FROM tests t
+LEFT JOIN test_attempts ta ON t.id = ta.test_id
+WHERE t.teacher_id = 2
+GROUP BY t.id;
+
+-- 5. Получение всех заданий студента с оценками и статусом
+SELECT a.title AS assignment_title, asub.score, asub.status, asub.submitted_at
+FROM assignment_submissions asub
+JOIN assignments a ON asub.assignment_id = a.id
+WHERE asub.student_id = 1
+ORDER BY asub.submitted_at DESC;
+
+-- 6. Получение всех модулей курса с количеством тестов и заданий
+SELECT m.id, m.title, 
+       COUNT(DISTINCT t.id) AS tests_count, 
+       COUNT(DISTINCT a.id) AS assignments_count
+FROM modules m
+LEFT JOIN tests t ON t.module_id = m.id
+LEFT JOIN assignments a ON a.module_id = m.id
+WHERE m.course_id = 2
+GROUP BY m.id;
+
+-- 7. Получение уведомлений пользователя, которые еще не прочитаны
+SELECT id, title, message, type, created_at
+FROM notifications
+WHERE user_id = 1 AND is_read = false
+ORDER BY created_at DESC;
+
+-- 8. Получение прогресса студента по курсам (кол-во пройденных модулей)
+SELECT c.title AS course_title, COUNT(DISTINCT mr.module_id) AS completed_modules
+FROM module_results mr
+JOIN modules m ON mr.module_id = m.id
+JOIN courses c ON m.course_id = c.id
+WHERE mr.student_id = 1 AND mr.status = 'completed'
+GROUP BY c.id;
+
+-- 9. Получение всех комментариев к курсу
+SELECT u.full_name, c.comment, c.created_at
+FROM comments c
+JOIN users u ON c.user_id = u.id
+WHERE c.entity_type = 'course' AND c.entity_id = 2
+ORDER BY c.created_at DESC;
+
+-- 10. Получение всех студентов, которые не начали тест
+SELECT u.full_name, t.title AS test_title
+FROM test_attempts ta
+JOIN users u ON ta.student_id = u.id
+JOIN tests t ON ta.test_id = t.id
+WHERE ta.status = 'in_progress' AND ta.started_at IS NULL;
+
+-- 11. Получение топ-3 курсов по средней оценке студентов
+SELECT c.title AS course_title, AVG(ta.score) AS avg_score
+FROM test_attempts ta
+JOIN tests t ON ta.test_id = t.id
+JOIN modules m ON t.module_id = m.id
+JOIN courses c ON m.course_id = c.id
+GROUP BY c.id
 ORDER BY avg_score DESC
+LIMIT 3;
+
+-- 12. Получение студентов, которые сдали задание с опозданием
+SELECT u.full_name, a.title AS assignment_title, asub.status, asub.submitted_at
+FROM assignment_submissions asub
+JOIN users u ON asub.student_id = u.id
+JOIN assignments a ON asub.assignment_id = a.id
+WHERE asub.status = 'late';
+
+-- 13. Получение активности пользователя за последний месяц (лог действий)
+SELECT action, created_at, ip_address, device_info
+FROM user_logs
+WHERE user_id = 1 AND created_at >= now() - INTERVAL '30 days'
+ORDER BY created_at DESC;
+
+-- 14. Получение достижений студента
+SELECT a.name AS achievement_name, a.description, a.points, ua.awarded_at
+FROM user_achievements ua
+JOIN achievements a ON ua.achievement_id = a.id
+WHERE ua.user_id = 1
+ORDER BY ua.awarded_at DESC;
+
+-- 15. Получение всех материалов модуля с фильтром по типу
+SELECT title, material_type, file_url
+FROM course_materials
+WHERE module_id = 4 AND material_type = 'video';
+
+-- 16. Получение студентов, которые не сдавали ни одного теста
+SELECT u.id, u.full_name
+FROM users u
+LEFT JOIN test_attempts ta ON u.id = ta.student_id
+WHERE u.role_id = 3 AND ta.id IS NULL; -- роль 3 = студент
+
+-- 17. Количество тестов и средний балл по каждому курсу
+SELECT c.title AS course_title, COUNT(DISTINCT t.id) AS tests_count, AVG(ta.score) AS avg_score
+FROM courses c
+JOIN modules m ON c.id = m.course_id
+LEFT JOIN tests t ON t.module_id = m.id
+LEFT JOIN test_attempts ta ON ta.test_id = t.id
+GROUP BY c.id;
+
+-- 18. Среднее время прохождения теста студентами
+SELECT t.title AS test_title, AVG(EXTRACT(EPOCH FROM (ta.finished_at - ta.started_at))/60) AS avg_minutes
+FROM test_attempts ta
+JOIN tests t ON ta.test_id = t.id
+WHERE ta.finished_at IS NOT NULL
+GROUP BY t.id;
+
+-- 19. Студенты с наибольшим количеством успешных попыток
+SELECT u.full_name, COUNT(*) AS passed_tests
+FROM test_attempts ta
+JOIN users u ON ta.student_id = u.id
+WHERE ta.score >= 80
+GROUP BY u.id
+ORDER BY passed_tests DESC
 LIMIT 5;
+
+-- 20. Получение всех тестов и количества вопросов в каждом
+SELECT t.id AS test_id, t.title, COUNT(q.id) AS questions_count
+FROM tests t
+LEFT JOIN questions q ON q.test_id = t.id
+GROUP BY t.id;
+
+-- 21. Процент студентов, прошедших каждый тест
+SELECT t.title, 
+       COUNT(CASE WHEN ta.score >= 50 THEN 1 END)*100.0/COUNT(ta.id) AS pass_percentage
+FROM tests t
+LEFT JOIN test_attempts ta ON t.id = ta.test_id
+GROUP BY t.id;
+
+-- 22. Рейтинг преподавателей по среднему баллу их тестов
+SELECT u.full_name AS teacher_name, AVG(ta.score) AS avg_score
+FROM users u
+JOIN tests t ON t.teacher_id = u.id
+JOIN test_attempts ta ON ta.test_id = t.id
+GROUP BY u.id
+ORDER BY avg_score DESC;
+
+-- 23. Студенты, набравшие меньше 50% по всем тестам курса
+SELECT u.full_name, c.title AS course_title, AVG(ta.score) AS avg_score
+FROM test_attempts ta
+JOIN users u ON ta.student_id = u.id
+JOIN tests t ON t.id = ta.test_id
+JOIN modules m ON t.module_id = m.id
+JOIN courses c ON m.course_id = c.id
+GROUP BY u.id, c.id
+HAVING AVG(ta.score) < 50;
+
+-- 24. Последние 5 комментариев по каждому курсу
+SELECT c.title AS course_title, cm.comment, u.full_name, cm.created_at
+FROM comments cm
+JOIN courses c ON cm.entity_type = 'course' AND cm.entity_id = c.id
+JOIN users u ON cm.user_id = u.id
+WHERE cm.entity_type = 'course'
+ORDER BY cm.created_at DESC
+LIMIT 5;
+
+-- 25. Топ студентов по количеству пройденных модулей
+SELECT u.full_name, COUNT(DISTINCT mr.module_id) AS completed_modules
+FROM module_results mr
+JOIN users u ON mr.student_id = u.id
+WHERE mr.status = 'completed'
+GROUP BY u.id
+ORDER BY completed_modules DESC
+LIMIT 10;
+
+-- 26. Материалы модуля с количеством просмотров студентами
+SELECT cm.title, cm.material_type, COUNT(v.id) AS views_count
+FROM course_materials cm
+LEFT JOIN material_views v ON cm.id = v.material_id
+WHERE cm.module_id = 2
+GROUP BY cm.id;
+
+-- 27. Оконная функция: средний балл по тесту и сравнение с каждым студентом
+SELECT ta.id AS attempt_id, u.full_name, ta.score,
+       AVG(ta.score) OVER (PARTITION BY ta.test_id) AS avg_test_score,
+       ta.score - AVG(ta.score) OVER (PARTITION BY ta.test_id) AS deviation_from_avg
+FROM test_attempts ta
+JOIN users u ON ta.student_id = u.id;
+
+-- 28. Список всех студентов с количеством попыток по каждому тесту
+SELECT u.full_name, t.title AS test_title, COUNT(ta.id) AS attempts_count
+FROM users u
+JOIN test_attempts ta ON u.id = ta.student_id
+JOIN tests t ON t.id = ta.test_id
+GROUP BY u.id, t.id;
+
+-- 29. Получение уведомлений для группы студентов
+SELECT n.title, n.message, n.created_at, g.name AS group_name
+FROM notifications n
+JOIN groups g ON n.group_id = g.id
+WHERE g.id = 3 AND n.is_read = false;
+
+-- 30. Получение всех тестов с количеством студентов, которые начали, но не закончили
+SELECT t.title, COUNT(ta.id) AS in_progress_count
+FROM tests t
+LEFT JOIN test_attempts ta ON t.id = ta.test_id AND ta.finished_at IS NULL
+GROUP BY t.id;
 </code>
 
 <h3 id="53-разработка-интерфейса">5.3. Разработка интерфейса</h3> 
+<p>Разработка интерфейса системы была выполнена с учётом принципов удобства использования, интуитивно понятной навигации и адаптивного дизайна для различных устройств. Основная цель интерфейса — обеспечить быстрый и комфортный доступ к функционалу для разных ролей пользователей (администратор, преподаватель, студент, просмотрщик).</p> 
 <ul> 
-    <li>Frontend: HTML/CSS/JS + Bootstrap</li> 
-    <li>Backend: Node.js + Express + PostgreSQL</li> 
-    <li>JWT-аутентификация</li> 
-    <li>REST API для взаимодействия с фронтендом</li> 
+  <li><strong>Frontend:</strong> Используются HTML, CSS и JavaScript/Typescript</li> 
+  <li><strong>Backend:</strong> Node.js с Express отвечает за обработку запросов, логику работы приложения и взаимодействие с базой данных PostgreSQL. Такой стек обеспечивает высокую производительность и масштабируемость системы.</li> 
+  <li><strong>JWT-аутентификация:</strong> Используется для безопасного подтверждения личности пользователей и защиты API. Токены позволяют фронтенду получать доступ к ресурсам без постоянного ввода логина и пароля, обеспечивая удобство и безопасность.</li> 
+  <li><strong>REST API:</strong> Позволяет фронтенду взаимодействовать с сервером через стандартизированные HTTP-запросы. API поддерживает все основные операции: получение тестов, отправку ответов, регистрацию пользователей, просмотр результатов и статистики. Такой подход обеспечивает модульность, расширяемость и возможность интеграции с мобильными приложениями или сторонними сервисами.</li> 
+  <li><strong>Адаптивный дизайн:</strong> Интерфейс автоматически подстраивается под размер экрана, обеспечивая комфортное использование на десктопах, планшетах и мобильных устройствах.</li> 
+  <li><strong>Удобство и эргономика:</strong> Все элементы интерфейса структурированы логично, минимизируя количество кликов для выполнения основных действий. Важные функции и уведомления выделены визуально для быстрого доступа.</li> 
+  <li><strong>Модульность:</strong> Компоненты интерфейса разработаны так, чтобы их легко было переиспользовать и модифицировать без глобальных изменений в коде.</li> 
+  <li><strong>Пользовательский опыт:</strong> В интерфейсе реализованы подсказки, валидация форм и обратная связь пользователю для предотвращения ошибок и повышения эффективности работы.</li> 
 </ul> 
+<p>Таким образом, интерфейс сочетает в себе современный дизайн, безопасность, удобство и масштабируемость, обеспечивая качественное взаимодействие с системой для всех категорий пользователей.</p>
 
 <h3 id="54-назначение-прав-доступа">5.4. Назначение прав доступа</h3>
+<p>Система использует ролевую модель для управления доступом к функциям и данным. Каждая роль определяет, какие действия пользователь может выполнять в системе.</p>
 <code>
--- Создание ролей в PostgreSQL
+-- Создание ролей
 CREATE ROLE admin LOGIN PASSWORD 'admin123';
 CREATE ROLE teacher LOGIN PASSWORD 'teacher123';
 CREATE ROLE student LOGIN PASSWORD 'student123';
 CREATE ROLE viewer LOGIN PASSWORD 'viewer123';
+
+-- Права для администратора: полный доступ ко всем таблицам и последовательностям
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
+
+-- Права для преподавателя: управление курсами, тестами и вопросами
+GRANT SELECT, INSERT, UPDATE, DELETE ON courses, groups, tests, questions, answers TO teacher;
+GRANT SELECT, UPDATE ON test_attempts, student_answers TO teacher;
+GRANT SELECT, UPDATE ON users TO teacher;
+
+-- Права для студента: прохождение тестов и просмотр своих результатов
+GRANT SELECT ON courses, groups, tests, questions, answers TO student;
+GRANT INSERT, UPDATE ON test_attempts, student_answers TO student;
+GRANT SELECT, UPDATE ON users TO student;
+
+-- Права для просмотрщика (viewer): только чтение данных
+GRANT SELECT ON courses, groups, tests, questions, answers, test_attempts, student_answers, users TO viewer;
+
 </code>
 
 <h3 id="55-создание-индексов">5.5. Создание индексов</h3>
+<p>Индексы в базе данных создаются для ускорения выборки данных и повышения производительности запросов, особенно при работе с большими таблицами. В нашей системе индексы используются для оптимизации операций поиска и фильтрации по ключевым полям.</p> <p>Ниже приведены основные индексы и их назначение:</p> 
+<ul> 
+  <li><strong>idx_users_role</strong> — ускоряет выборку пользователей по их роли (admin, teacher, student, viewer), что важно для формирования списков пользователей и контроля доступа.</li> 
+  <li><strong>idx_tests_teacher</strong> — позволяет быстро получать все тесты конкретного преподавателя.</li> <li><strong>idx_tests_module</strong> — ускоряет поиск тестов по модулю курса.</li> 
+  <li><strong>idx_attempts_student</strong> — оптимизирует выборку всех попыток тестов конкретного студента.</li> 
+  <li><strong>idx_group_students_student</strong> — ускоряет определение всех групп, в которых состоит студент, и позволяет эффективно строить списки студентов по группам.</li> 
+  <li><strong>idx_user_logs_user</strong> — ускоряет выборку логов действий конкретного пользователя для аналитики активности.</li> <li><strong>idx_schedule_group</strong> — оптимизирует поиск расписания по группе студентов или преподавателя.</li> 
+  <li><strong>idx_assignment_submissions_student</strong> — позволяет быстро получать все задания, сданные конкретным студентом, для расчета успеваемости и формирования отчетов.</li> 
+</ul> 
+<p>Использование индексов существенно повышает скорость выполнения запросов, особенно в операциях JOIN и выборках с фильтрацией, что критично для системы с большим количеством студентов, тестов и учебных материалов. Индексы тщательно подобраны с учетом типичных сценариев работы пользователей и аналитических задач.</p>
 <code>
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_role ON users(role_id);
 CREATE INDEX idx_tests_teacher ON tests(teacher_id);
-CREATE INDEX idx_test_attempts_student ON test_attempts(student_id);
-CREATE INDEX idx_questions_test ON questions(test_id);
+CREATE INDEX idx_tests_module ON tests(module_id);
+CREATE INDEX idx_attempts_student ON test_attempts(student_id);
+CREATE INDEX idx_group_students_student ON group_students(student_id);
+CREATE INDEX idx_user_logs_user ON user_logs(user_id);
+CREATE INDEX idx_schedule_group ON schedule(group_id);
+CREATE INDEX idx_assignment_submissions_student ON assignment_submissions(student_id);
 </code>
 <h3 id="56-резервное-копирование">5.6. Разработка стратегии резервного копирования</h3>
+<p>Создание копии раз в определенное время и удаление старых бэкапов</p>
 <code>
 #!/bin/bash
 BACKUP_DIR="/var/backups/postgresql"
@@ -394,6 +1104,7 @@ find $BACKUP_DIR -name "*.backup" -mtime +30 -delete
 </ul> 
 
 <h3 id="58-разработка-api">5.8. Разработка API</h3>
+<p>API предоставляет интерфейс для взаимодействия фронтенда с сервером образовательного центра. Оно позволяет авторизовать пользователей, получать списки тестов, отдельные тесты с вопросами и вариантами ответов, а также отправлять ответы студентов на тесты.</p>
 <code>
 type Answer = { id: number; text: string };
 type Question = { id: number; text: string; answers: Answer[] };
@@ -1019,4 +1730,9 @@ export default router;
 
 
 </code>
+
+
+
+
+
 
